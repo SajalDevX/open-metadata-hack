@@ -12,9 +12,9 @@
 
 ## References
 
-- Base spec: `2026-04-18-metadata-incident-copilot-design.md`
-- Expanded spec: `2026-04-18-metadata-incident-copilot-expanded-design.md`
-- Base plan: `2026-04-18-metadata-incident-copilot.md`
+- Base spec: `docs/superpowers/specs/2026-04-18-metadata-incident-copilot-design.md`
+- Expanded spec: `docs/superpowers/specs/2026-04-18-metadata-incident-copilot-expanded-design.md`
+- Base plan: `docs/superpowers/plans/2026-04-18-metadata-incident-copilot.md`
 - Apply DRY, YAGNI, TDD, and frequent commits.
 
 ## Planned File Structure
@@ -36,7 +36,12 @@
 
 - `projects/main-submission/src/incident_copilot/contracts.py` — add `RCAResult`, `ScoredAsset`, `RecommendationResult`
 - `projects/main-submission/src/incident_copilot/orchestrator.py` — wire blocks 8, 9, 10 into pipeline
+- `projects/main-submission/src/incident_copilot/context_resolver.py` — add `USE_OM_MCP=true` switch with direct-HTTP fallback
+- `projects/main-submission/tests/test_context_resolver.py` — add resolver mode parity + MCP-unavailable fallback coverage
 - `projects/main-submission/pyproject.toml` — add `openai` and `fastmcp` dependencies
+- `projects/main-submission/src/incident_copilot/delivery.py` — expose canonical payload/hash for Slack vs local mirror parity checks
+- `projects/main-submission/scripts/run_demo.py` — add one-click deterministic replay entrypoint with optional `--use-om-mcp`
+- `projects/main-submission/runtime/fixtures/replay_om_context.json` — explicit demo context source of truth for `om_data`
 
 ---
 
@@ -180,7 +185,7 @@ def test_get_client_returns_openai_client():
     with patch.dict(os.environ, {"OPENROUTER_API_KEY": "sk-or-test"}):
         client = get_client()
         assert isinstance(client, OpenAI)
-        assert "openrouter" in client.base_url.host
+        assert str(client.base_url).startswith("https://openrouter.ai/")
 ```
 
 - [ ] **Step 2: Run tests to verify failure**
@@ -850,7 +855,10 @@ Expected: `FAIL` with ImportError.
 Create `projects/main-submission/src/incident_copilot/mcp_facade.py`:
 
 ```python
-import os
+import json
+import hashlib
+from dataclasses import asdict
+from pathlib import Path
 from fastmcp import FastMCP
 from incident_copilot.rca_engine import build_rca
 from incident_copilot.impact_scorer import score_assets
@@ -872,15 +880,34 @@ def get_rca_tool(test_case_id: str, signal_type: str = "unknown") -> dict:
     }
 
 
+def _load_replay_context(
+    path: str = "projects/main-submission/runtime/fixtures/replay_om_context.json",
+) -> dict:
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def _stable_hash(payload: dict) -> str:
+    body = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
 def score_impact_tool(entity_fqn: str, lineage_depth: int = 2) -> list[dict]:
-    return []
+    om_data = _load_replay_context()
+    lineage = [
+        item for item in (om_data.get("lineage") or [])
+        if item.get("fqn") == entity_fqn and int(item.get("distance", 99)) <= lineage_depth
+    ]
+    return [asdict(item) for item in score_assets(lineage)]
 
 
 def notify_slack_tool(incident_id: str) -> dict:
+    payload = {"incident_id": incident_id}
     return {
-        "status": "not_configured",
+        "status": "mirrored",
         "incident_id": incident_id,
         "fallback": "local_mirror",
+        "mirror_path": "projects/main-submission/runtime/local_mirror/latest_brief.json",
+        "payload_hash": _stable_hash(payload),
     }
 
 
@@ -896,9 +923,13 @@ def triage_incident(incident_id: str, entity_fqn: str) -> dict:
         "occurred_at": "",
         "raw_ref": incident_id,
     }
-    om_data = {"failed_test": {}, "lineage": [], "owners": {}, "classifications": {}}
+    om_data = _load_replay_context()
     result = run_pipeline(raw_event, om_data, slack_sender=lambda _: False)
-    return result["brief"]
+    return {
+        "brief": result["brief"],
+        "delivery": result["delivery"],
+        "mode": "replay_fixture",
+    }
 
 
 @mcp.tool()
@@ -945,7 +976,7 @@ git commit -m "feat: add MCP facade exposing triage_incident, score_impact, get_
 
 - [ ] **Step 1: Install dependencies**
 
-Run: `cd projects/main-submission && pip install -e ".[dev]" openai fastmcp`
+Run: `cd projects/main-submission && pip install -e ".[dev]"`
 
 - [ ] **Step 2: Run full test suite without OpenRouter key**
 
@@ -986,7 +1017,26 @@ python scripts/run_demo.py --replay runtime/fixtures/replay_event.json \
 
 Expected: `runtime/local_mirror/latest_brief.json` is identical on both runs (deterministic, no key set).
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Verify direct HTTP vs `USE_OM_MCP=true` parity on replay fixture**
+
+```bash
+python scripts/run_demo.py --replay runtime/fixtures/replay_event.json \
+  --context runtime/fixtures/replay_om_context.json \
+  --output runtime/local_mirror/latest_http.json
+
+USE_OM_MCP=true python scripts/run_demo.py --replay runtime/fixtures/replay_event.json \
+  --context runtime/fixtures/replay_om_context.json \
+  --output runtime/local_mirror/latest_mcp.json
+```
+
+Expected: canonical brief fields and policy state are identical between `latest_http.json` and `latest_mcp.json`.
+
+- [ ] **Step 7: Verify Slack payload vs local mirror parity contract**
+
+Run: `python -m pytest tests/test_delivery.py::test_slack_payload_matches_local_mirror_core_fields -v`
+Expected: `PASS`; payload hashes or normalized core fields match exactly.
+
+- [ ] **Step 8: Commit**
 
 ```bash
 git add .
@@ -995,16 +1045,42 @@ git commit -m "test: verify full suite and demo harness determinism after expand
 
 ---
 
+## Critical Hardening Deltas (Required Before Build)
+
+- [ ] Add `test_build_rca_falls_back_when_claude_returns_blank` and implement blank-response fallback to template in `rca_engine.py`.
+- [ ] Add `test_claude_empty_list_falls_back_to_policy` and implement non-empty guard in `ai_recommender.py` before returning `source="claude"`.
+- [ ] Add `test_distance_zero_is_clamped` and clamp `distance` to `>=1` in `impact_scorer.py` to prevent divide-by-zero.
+- [ ] Replace MCP facade stubs:
+Use replay fixture-backed context loading for `triage_incident` instead of inline empty `om_data` dict.
+- [ ] Add an explicit parity test:
+`test_mcp_facade.py::test_triage_incident_parity_with_run_pipeline_replay_fixture`.
+- [ ] Add deterministic one-click entrypoint docs:
+`scripts/run_demo.py` must document where `om_data` fixture comes from and expected output files.
+- [ ] Ensure `notify_slack_tool` hashes canonical brief payload (not just `incident_id`) so parity checks are meaningful.
+- [ ] Add explicit implementation task for `context_resolver.py`:
+support `USE_OM_MCP=true` by calling OM MCP tools first, then fallback to direct HTTP when MCP errors or times out.
+- [ ] Add resolver mode tests in `test_context_resolver.py`:
+direct mode and MCP mode must return equivalent normalized context on replay fixtures.
+
 ## End-to-End Verification Checklist
 
 - [ ] `test_rca_engine.py` — all signal types map to correct cause tree, template fallback always non-empty.
 - [ ] `test_rca_engine.py` — Claude called when key available, template used when Claude raises.
+- [ ] `test_rca_engine.py` — blank Claude response falls back to template narrative.
 - [ ] `test_impact_scorer.py` — formula correct, score_reason contains all terms, sorted descending.
+- [ ] `test_impact_scorer.py` — distance `0` or missing values are clamped safely to `1`.
 - [ ] `test_ai_recommender.py` — policy fallback when no key or no asset, Claude used when available.
 - [ ] `test_ai_recommender.py` — `approval_required` fallback mentions steward.
+- [ ] `test_ai_recommender.py` — blank Claude output falls back to deterministic policy bullets.
 - [ ] `test_orchestrator.py` — `rca`, `scored_assets`, `recommendation` in output.
 - [ ] `test_orchestrator.py` — `what_failed` text contains RCA narrative.
 - [ ] `test_orchestrator.py` — `what_is_impacted` text contains `score:`.
+- [ ] `test_context_resolver.py` — `USE_OM_MCP=true` and direct mode produce equivalent normalized context on replay fixtures.
+- [ ] `test_context_resolver.py` — MCP resolver failures/timeouts fallback to direct HTTP with non-empty fallback reason codes.
 - [ ] `test_mcp_facade.py` — all 4 MCP tools callable as plain functions.
+- [ ] `test_mcp_facade.py` — `triage_incident` replay-fixture output matches direct `run_pipeline` output.
+- [ ] `test_mcp_facade.py` — `notify_slack` payload hash is derived from canonical brief payload.
+- [ ] `test_delivery.py` — Slack payload and local mirror persisted core fields are identical.
 - [ ] Full suite passes with no `OPENROUTER_API_KEY` set.
 - [ ] Demo harness produces identical output on two consecutive runs.
+- [ ] Direct HTTP mode and `USE_OM_MCP=true` mode produce identical brief outputs on the same replay fixture.
