@@ -2,7 +2,7 @@
 
 ## Context
 
-Extends the base incident copilot (`2026-04-18-metadata-incident-copilot-design.md`) to cover six additional OpenMetadata hackathon problem statements while preserving the existing deterministic demo guarantee.
+Defines the active incident-copilot design for the hackathon scope, covering six additional OpenMetadata problem statements while preserving deterministic demo guarantees.
 
 - Primary theme: Data Observability (`2`)
 - Supporting themes: MCP/AI Agents (`1`), Community & Comms (`5`), Governance & Classification (`6`)

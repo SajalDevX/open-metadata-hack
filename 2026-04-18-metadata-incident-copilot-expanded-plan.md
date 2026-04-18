@@ -12,9 +12,7 @@
 
 ## References
 
-- Base spec: `2026-04-18-metadata-incident-copilot-design.md`
 - Expanded spec: `2026-04-18-metadata-incident-copilot-expanded-design.md`
-- Base plan: `2026-04-18-metadata-incident-copilot.md`
 - Apply DRY, YAGNI, TDD, and frequent commits.
 
 ## Planned File Structure
