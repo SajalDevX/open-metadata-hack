@@ -2,7 +2,7 @@
 
 ## Context
 
-Extends the base incident copilot (`docs/superpowers/specs/2026-04-18-metadata-incident-copilot-design.md`) to cover six additional OpenMetadata hackathon problem statements while preserving the existing deterministic demo guarantee.
+Extends the base incident copilot (`2026-04-18-metadata-incident-copilot-design.md`) to cover six additional OpenMetadata hackathon problem statements while preserving the existing deterministic demo guarantee.
 
 - Primary theme: Data Observability (`2`)
 - Supporting themes: MCP/AI Agents (`1`), Community & Comms (`5`), Governance & Classification (`6`)
@@ -27,6 +27,40 @@ Extend the 7-block base pipeline with 4 new blocks that cover all six problem st
 - Deterministic: scoring formula, cause tree mapping, policy rules, owner routing, impact bounds.
 - Claude API: RCA narrative (1-2 sentences from cause tree), "What to do next" bullets (from failure + profile context).
 - Fallback guarantee: if any Claude call fails, template strings from the deterministic layer fill the block. No blank brief fields ever.
+
+## Desired Prototype (Hackathon Cut)
+
+For the hackathon, the prototype is successful only if one command can run a full incident flow and produce the same decision in repeat runs.
+
+**Prototype-critical requirements (must ship):**
+- Deterministic policy decision (`PII.Sensitive` => `approval_required`)
+- RCA block always non-empty (Claude or fallback)
+- Impact block with numeric score + reason string
+- Action block with at least one recommendation bullet
+- Parity output across Slack payload and local mirror
+- Parity output across direct HTTP and `USE_OM_MCP=true` replay runs
+
+**Nice-to-have (only after prototype is stable):**
+- Richer recommendation prompt tuning
+- Additional signal types beyond the initial 5
+- Non-replay live metadata fetch hardening
+
+## Integration Contract (How Components Combine)
+
+Each component has one strict handoff contract. If this contract is broken, the pipeline is considered broken even if the demo still renders text.
+
+1. `Context Resolver` -> `Impact Prioritizer`:
+must return bounded impacted assets (depth <= 2, top <= 3) with classifications and ownership metadata.
+2. `Impact Prioritizer` -> `Impact Scorer`:
+must pass distance and downstream counts; scorer returns deterministic numeric score + score_reason.
+3. `Context Resolver` -> `RCA Engine`:
+must pass failed test payload; RCA returns non-empty narrative with explicit source (`claude` or `template`).
+4. `Policy Advisor` -> `AI Recommender`:
+policy state is authoritative; recommender may change wording, never policy decision.
+5. `Brief Generator` -> `Delivery Layer`:
+canonical brief payload is the single source for both Slack and local mirror rendering.
+6. `Orchestrator` -> `MCP Facade`:
+`triage_incident` must return the same canonical brief payload shape used by direct pipeline execution.
 
 ## Architecture — 11 Blocks
 
