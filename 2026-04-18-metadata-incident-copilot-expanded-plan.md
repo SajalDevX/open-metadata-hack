@@ -65,7 +65,7 @@ This is the strategic path to the desired hackathon prototype. Do not optimize f
 - Exit gate: direct HTTP vs `USE_OM_MCP=true` parity and Slack vs local mirror parity both pass
 
 **Critical path for judging demo:**
-`Task 1 -> Task 3 -> Task 4 -> Task 6 -> Task 8`
+`Task 1 -> Task 3 -> Task 4 -> Task 6 -> Task 7 -> Task 8 -> Task 9 -> Task 10`
 
 **Rule for scope pressure:**
 If time is short, cut breadth (new signals, richer prompts), never cut parity or fallback guarantees.
@@ -679,7 +679,74 @@ git commit -m "feat: add AI recommender with policy fallback for What-to-do-next
 
 ---
 
-### Task 6: Wire New Blocks into Orchestrator
+### Task 6: Context Resolver MCP Mode + Direct Fallback
+
+**Files:**
+- Modify: `projects/main-submission/src/incident_copilot/context_resolver.py`
+- Test: `projects/main-submission/tests/test_context_resolver.py`
+
+- [ ] **Step 1: Write failing resolver mode tests**
+
+Add to `projects/main-submission/tests/test_context_resolver.py`:
+
+```python
+import os
+from unittest.mock import patch
+from incident_copilot.context_resolver import resolve_context
+
+ENV = {"incident_id": "inc-1", "entity_fqn": "svc.db.customer_profiles"}
+OM_DATA = {
+    "failed_test": {"message": "null ratio exceeded 15%"},
+    "lineage": [{"fqn": "svc.db.customer_curated", "distance": 1, "business_facing": True, "downstream_count": 3}],
+    "owners": {"asset_owner": "dre-oncall"},
+    "classifications": {"svc.db.customer_curated": ["PII.Sensitive"]},
+}
+
+def test_direct_and_mcp_modes_are_equivalent_on_replay_fixture():
+    with patch.dict(os.environ, {}, clear=True):
+        direct = resolve_context(ENV, OM_DATA, max_depth=2)
+    with patch.dict(os.environ, {"USE_OM_MCP": "true"}):
+        with patch("incident_copilot.context_resolver._resolve_via_mcp", return_value=OM_DATA):
+            mcp = resolve_context(ENV, OM_DATA, max_depth=2)
+    assert direct["failed_test"] == mcp["failed_test"]
+    assert direct["impacted_assets"] == mcp["impacted_assets"]
+
+def test_mcp_failure_falls_back_to_direct_mode():
+    with patch.dict(os.environ, {"USE_OM_MCP": "true"}):
+        with patch("incident_copilot.context_resolver._resolve_via_mcp", side_effect=Exception("timeout")):
+            out = resolve_context(ENV, OM_DATA, max_depth=2)
+    assert len(out.get("fallback_reason_codes", [])) >= 1
+```
+
+- [ ] **Step 2: Run tests to verify failure**
+
+Run: `python -m pytest projects/main-submission/tests/test_context_resolver.py -v`
+Expected: `FAIL` until MCP-mode routing and fallback behavior are implemented.
+
+- [ ] **Step 3: Implement resolver mode switch + fallback**
+
+Update `projects/main-submission/src/incident_copilot/context_resolver.py`:
+- If `USE_OM_MCP=true`, call `_resolve_via_mcp(...)` first.
+- On MCP error/timeout, fallback to direct resolver path.
+- Emit explicit `fallback_reason_codes` for MCP failure.
+- Normalize output shape so direct and MCP modes are equivalent for downstream consumers.
+
+- [ ] **Step 4: Run tests to verify pass**
+
+Run: `python -m pytest projects/main-submission/tests/test_context_resolver.py -v`
+Expected: all `PASS`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add projects/main-submission/src/incident_copilot/context_resolver.py \
+  projects/main-submission/tests/test_context_resolver.py
+git commit -m "feat: add context resolver MCP mode with direct fallback and parity tests"
+```
+
+---
+
+### Task 7: Wire New Blocks into Orchestrator
 
 **Files:**
 - Modify: `projects/main-submission/src/incident_copilot/orchestrator.py`
@@ -837,7 +904,7 @@ git commit -m "feat: wire RCA engine, impact scorer, and AI recommender into orc
 
 ---
 
-### Task 7: MCP Facade (Block 11)
+### Task 8: MCP Facade (Block 11)
 
 **Files:**
 - Create: `projects/main-submission/src/incident_copilot/mcp_facade.py`
@@ -927,20 +994,20 @@ def score_impact_tool(entity_fqn: str, lineage_depth: int = 2) -> list[dict]:
     return [asdict(item) for item in score_assets(lineage)]
 
 
-def notify_slack_tool(incident_id: str) -> dict:
-    payload = {"incident_id": incident_id}
+def notify_slack_tool(incident_id: str, brief: dict | None = None) -> dict:
+    canonical_payload = {"brief": brief or {"incident_id": incident_id}}
     return {
         "status": "mirrored",
         "incident_id": incident_id,
         "fallback": "local_mirror",
         "mirror_path": "projects/main-submission/runtime/local_mirror/latest_brief.json",
-        "payload_hash": _stable_hash(payload),
+        "payload_hash": _stable_hash(canonical_payload),
     }
 
 
 @mcp.tool()
 def triage_incident(incident_id: str, entity_fqn: str) -> dict:
-    """Run full incident triage pipeline and return a 4-block brief."""
+    """Run full incident triage pipeline and return canonical `brief` + `delivery` envelope."""
     from incident_copilot.orchestrator import run_pipeline
     raw_event = {
         "incident_id": incident_id,
@@ -972,9 +1039,9 @@ def get_rca(test_case_id: str, signal_type: str = "unknown") -> dict:
 
 
 @mcp.tool()
-def notify_slack(incident_id: str) -> dict:
-    """Trigger Slack notification for an incident brief."""
-    return notify_slack_tool(incident_id)
+def notify_slack(incident_id: str, brief: dict | None = None) -> dict:
+    """Trigger Slack notification for a canonical incident brief payload."""
+    return notify_slack_tool(incident_id, brief)
 
 
 if __name__ == "__main__":
@@ -996,7 +1063,64 @@ git commit -m "feat: add MCP facade exposing triage_incident, score_impact, get_
 
 ---
 
-### Task 8: Full Suite Verification
+### Task 9: Required Hardening Gates (Mandatory Before Final Verification)
+
+**Files:**
+- Modify: `projects/main-submission/src/incident_copilot/rca_engine.py`
+- Modify: `projects/main-submission/src/incident_copilot/impact_scorer.py`
+- Modify: `projects/main-submission/src/incident_copilot/ai_recommender.py`
+- Modify: `projects/main-submission/src/incident_copilot/mcp_facade.py`
+- Modify: `projects/main-submission/scripts/run_demo.py`
+- Test: `projects/main-submission/tests/test_rca_engine.py`
+- Test: `projects/main-submission/tests/test_impact_scorer.py`
+- Test: `projects/main-submission/tests/test_ai_recommender.py`
+- Test: `projects/main-submission/tests/test_mcp_facade.py`
+- Test: `projects/main-submission/tests/test_delivery.py`
+
+- [ ] **Step 1: Add missing hardening tests**
+
+Implement/add:
+- `test_build_rca_falls_back_when_claude_returns_blank`
+- `test_claude_empty_list_falls_back_to_policy`
+- `test_distance_zero_is_clamped`
+- `test_triage_incident_parity_with_run_pipeline_replay_fixture`
+- `test_notify_slack_hash_uses_canonical_brief_payload`
+
+- [ ] **Step 2: Implement hardening behavior**
+
+Apply all corresponding fixes:
+- blank Claude RCA response -> template fallback
+- empty Claude recommendation list -> policy fallback
+- clamp distance to `>=1` before scoring
+- ensure `notify_slack_tool` hashes canonical brief payload (not incident-only payload)
+- ensure `scripts/run_demo.py` documents and enforces replay fixture context source
+
+- [ ] **Step 3: Run hardening test subset**
+
+Run:
+`python -m pytest tests/test_rca_engine.py tests/test_impact_scorer.py tests/test_ai_recommender.py tests/test_mcp_facade.py tests/test_delivery.py -v`
+
+Expected: all hardening tests `PASS`.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add projects/main-submission/src/incident_copilot/rca_engine.py \
+  projects/main-submission/src/incident_copilot/impact_scorer.py \
+  projects/main-submission/src/incident_copilot/ai_recommender.py \
+  projects/main-submission/src/incident_copilot/mcp_facade.py \
+  projects/main-submission/scripts/run_demo.py \
+  projects/main-submission/tests/test_rca_engine.py \
+  projects/main-submission/tests/test_impact_scorer.py \
+  projects/main-submission/tests/test_ai_recommender.py \
+  projects/main-submission/tests/test_mcp_facade.py \
+  projects/main-submission/tests/test_delivery.py
+git commit -m "test: add mandatory hardening gates for fallback safety and parity proof"
+```
+
+---
+
+### Task 10: Full Suite Verification
 
 **Files:**
 - No new files. Runs all tests end-to-end.
@@ -1072,22 +1196,9 @@ git commit -m "test: verify full suite and demo harness determinism after expand
 
 ---
 
-## Critical Hardening Deltas (Required Before Build)
+## Hardening Status
 
-- [ ] Add `test_build_rca_falls_back_when_claude_returns_blank` and implement blank-response fallback to template in `rca_engine.py`.
-- [ ] Add `test_claude_empty_list_falls_back_to_policy` and implement non-empty guard in `ai_recommender.py` before returning `source="claude"`.
-- [ ] Add `test_distance_zero_is_clamped` and clamp `distance` to `>=1` in `impact_scorer.py` to prevent divide-by-zero.
-- [ ] Replace MCP facade stubs:
-Use replay fixture-backed context loading for `triage_incident` instead of inline empty `om_data` dict.
-- [ ] Add an explicit parity test:
-`test_mcp_facade.py::test_triage_incident_parity_with_run_pipeline_replay_fixture`.
-- [ ] Add deterministic one-click entrypoint docs:
-`scripts/run_demo.py` must document where `om_data` fixture comes from and expected output files.
-- [ ] Ensure `notify_slack_tool` hashes canonical brief payload (not just `incident_id`) so parity checks are meaningful.
-- [ ] Add explicit implementation task for `context_resolver.py`:
-support `USE_OM_MCP=true` by calling OM MCP tools first, then fallback to direct HTTP when MCP errors or times out.
-- [ ] Add resolver mode tests in `test_context_resolver.py`:
-direct mode and MCP mode must return equivalent normalized context on replay fixtures.
+All previously listed hardening deltas are now first-class mandatory work in **Task 9** and must be completed before Task 10 final verification.
 
 ## End-to-End Verification Checklist
 

@@ -60,7 +60,7 @@ policy state is authoritative; recommender may change wording, never policy deci
 5. `Brief Generator` -> `Delivery Layer`:
 canonical brief payload is the single source for both Slack and local mirror rendering.
 6. `Orchestrator` -> `MCP Facade`:
-`triage_incident` must return the same canonical brief payload shape used by direct pipeline execution.
+`triage_incident` must return the canonical triage response envelope (`brief` + `delivery`) used by direct pipeline execution.
 
 ## Architecture — 11 Blocks
 
@@ -202,10 +202,10 @@ class RecommendationResult:
 
 | Tool | Input | Output |
 |------|-------|--------|
-| `triage_incident(incident_id, entity_fqn)` | Incident ID + asset FQN | 4-block brief + delivery metadata JSON |
+| `triage_incident(incident_id, entity_fqn)` | Incident ID + asset FQN | Canonical triage response envelope (`brief` + `delivery`) |
 | `score_impact(entity_fqn, lineage_depth)` | Asset FQN | List of `ScoredAsset` with score_reason |
 | `get_rca(test_case_id, signal_type)` | Test case ID | `RCAResult` with cause tree + narrative |
-| `notify_slack(incident_id)` | Incident ID | Delivery status (sent/failed/mirror) |
+| `notify_slack(incident_id, brief=None)` | Incident ID + optional canonical brief | Delivery status (sent/failed/mirror) + parity hash |
 
 **OpenMetadata MCP consumption (optional):**
 Context Resolver can be configured to call the OpenMetadata MCP server's `search_metadata` and lineage tools instead of direct HTTP. Toggle via `USE_OM_MCP=true` env var. Falls back to direct HTTP if MCP server unavailable.
@@ -246,7 +246,7 @@ All base rules preserved:
 
 6. RCA narrative always present in "What failed" block — never empty.
 7. Every impacted asset in brief has a numeric score and `score_reason` string.
-8. "What to do next" block contains ≥ 1 bullet when Claude is available.
+8. "What to do next" block contains >= 1 bullet in both Claude and fallback modes.
 9. MCP Facade responds to `triage_incident` tool call and returns parity brief with Slack/local mirror.
 10. `USE_OM_MCP=true` mode produces same brief as direct HTTP mode on replay fixture.
 11. Slack payload and persisted local mirror share the same canonical core fields (parity checkable by hash or normalized JSON compare).
