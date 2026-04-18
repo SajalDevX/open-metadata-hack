@@ -2,7 +2,7 @@
 
 ## Context
 
-Extends the base incident copilot (`2026-04-18-metadata-incident-copilot-design.md`) to cover six additional OpenMetadata hackathon problem statements while preserving the existing deterministic demo guarantee.
+Extends the base incident copilot (`docs/superpowers/specs/2026-04-18-metadata-incident-copilot-design.md`) to cover six additional OpenMetadata hackathon problem statements while preserving the existing deterministic demo guarantee.
 
 - Primary theme: Data Observability (`2`)
 - Supporting themes: MCP/AI Agents (`1`), Community & Comms (`5`), Governance & Classification (`6`)
@@ -168,7 +168,7 @@ class RecommendationResult:
 
 | Tool | Input | Output |
 |------|-------|--------|
-| `triage_incident(incident_id, entity_fqn)` | Incident ID + asset FQN | Full 4-block brief as JSON |
+| `triage_incident(incident_id, entity_fqn)` | Incident ID + asset FQN | 4-block brief + delivery metadata JSON |
 | `score_impact(entity_fqn, lineage_depth)` | Asset FQN | List of `ScoredAsset` with score_reason |
 | `get_rca(test_case_id, signal_type)` | Test case ID | `RCAResult` with cause tree + narrative |
 | `notify_slack(incident_id)` | Incident ID | Delivery status (sent/failed/mirror) |
@@ -205,6 +205,8 @@ All base rules preserved:
 6. If Claude Recommender call fails, `source = "policy_fallback"` — brief still renders.
 7. If OpenMetadata MCP unavailable, Context Resolver falls back to direct HTTP.
 8. All Claude calls have a 3-second timeout with immediate fallback.
+9. If Claude returns blank or unparsable text, treat as failure and use deterministic fallback.
+10. One-click demo uses replay fixtures for both event and `om_data`; no hidden runtime state.
 
 ## Success Criteria (additions to base)
 
@@ -213,6 +215,8 @@ All base rules preserved:
 8. "What to do next" block contains ≥ 1 bullet when Claude is available.
 9. MCP Facade responds to `triage_incident` tool call and returns parity brief with Slack/local mirror.
 10. `USE_OM_MCP=true` mode produces same brief as direct HTTP mode on replay fixture.
+11. Slack payload and persisted local mirror share the same canonical core fields (parity checkable by hash or normalized JSON compare).
+12. `triage_incident` MCP output on replay fixtures matches direct `run_pipeline` output for the same incident.
 
 ## Problem Statement Coverage Map
 
