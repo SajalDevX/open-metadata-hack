@@ -12,9 +12,9 @@
 
 ## References
 
-- Base spec: `docs/superpowers/specs/2026-04-18-metadata-incident-copilot-design.md`
-- Expanded spec: `docs/superpowers/specs/2026-04-18-metadata-incident-copilot-expanded-design.md`
-- Base plan: `docs/superpowers/plans/2026-04-18-metadata-incident-copilot.md`
+- Base spec: `2026-04-18-metadata-incident-copilot-design.md`
+- Expanded spec: `2026-04-18-metadata-incident-copilot-expanded-design.md`
+- Base plan: `2026-04-18-metadata-incident-copilot.md`
 - Apply DRY, YAGNI, TDD, and frequent commits.
 
 ## Planned File Structure
@@ -42,6 +42,35 @@
 - `projects/main-submission/src/incident_copilot/delivery.py` — expose canonical payload/hash for Slack vs local mirror parity checks
 - `projects/main-submission/scripts/run_demo.py` — add one-click deterministic replay entrypoint with optional `--use-om-mcp`
 - `projects/main-submission/runtime/fixtures/replay_om_context.json` — explicit demo context source of truth for `om_data`
+
+---
+
+## Prototype Strategy (Build This First)
+
+This is the strategic path to the desired hackathon prototype. Do not optimize for feature count until this path is green.
+
+**Phase 0: Reproducible demo envelope**
+- Lock replay event + replay OM context fixtures
+- Ensure one command can run full pipeline and render output
+- Exit gate: two consecutive runs produce identical local mirror output
+
+**Phase 1: Deterministic decision core**
+- Contracts + impact scorer + policy decision + brief formatting
+- Exit gate: `PII.Sensitive` case always results in `approval_required`
+
+**Phase 2: Explainability and recommendations**
+- RCA engine + AI recommender with strict fallback behavior
+- Exit gate: RCA and recommendation blocks are always non-empty without API key
+
+**Phase 3: Integration and parity proof**
+- Orchestrator wiring + MCP facade + delivery parity checks + resolver mode parity
+- Exit gate: direct HTTP vs `USE_OM_MCP=true` parity and Slack vs local mirror parity both pass
+
+**Critical path for judging demo:**
+`Task 1 -> Task 3 -> Task 4 -> Task 6 -> Task 8`
+
+**Rule for scope pressure:**
+If time is short, cut breadth (new signals, richer prompts), never cut parity or fallback guarantees.
 
 ---
 
