@@ -9,6 +9,7 @@ def _cfg(**overrides) -> AppConfig:
         openmetadata_base_url=None, openmetadata_jwt_token=None,
         openmetadata_mcp_url=None, slack_webhook_url=None,
         openrouter_api_key=None, use_om_mcp=False,
+        enable_poller=False, poller_interval_seconds=60.0,
     )
     defaults.update(overrides)
     return AppConfig(**defaults)

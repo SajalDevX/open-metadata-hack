@@ -290,6 +290,31 @@ class OpenMetadataClient:
                     candidates.append(mapped)
         return candidates
 
+    def fetch_recent_test_case_results(
+        self, since_ms: int = 0, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """Fetch recent testCaseResults for polling mode.
+
+        Queries `/v1/dataQuality/testCases/testCaseResults` (OpenMetadata 1.x).
+        Returns a flat list of entries shaped `{testCase: {...}, testCaseResult: {...}}`.
+        """
+        try:
+            payload = self._json_get(
+                "/v1/dataQuality/testCases/testCaseResults",
+                query={
+                    "startTs": since_ms if since_ms > 0 else None,
+                    "limit": limit,
+                    "fields": "testCase,testCaseResult",
+                },
+            )
+        except OpenMetadataClientError:
+            return []
+
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(data, list):
+            return []
+        return data
+
     def fetch_incident_context(self, envelope: dict[str, Any], max_depth: int = 2) -> dict[str, Any]:
         original_entity_fqn = envelope.get("entity_fqn") or ""
         test_case_hint = envelope.get("test_case_id") or ""

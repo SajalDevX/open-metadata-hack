@@ -15,6 +15,8 @@ class AppConfig:
     slack_webhook_url: str | None
     openrouter_api_key: str | None
     use_om_mcp: bool
+    enable_poller: bool
+    poller_interval_seconds: float
 
     @property
     def has_openmetadata(self) -> bool:
@@ -45,4 +47,6 @@ def load_config() -> AppConfig:
         slack_webhook_url=os.environ.get("SLACK_WEBHOOK_URL") or os.environ.get("SLACK_WEBHOOK") or None,
         openrouter_api_key=os.environ.get("OPENROUTER_API_KEY") or None,
         use_om_mcp=_bool_env("USE_OM_MCP"),
+        enable_poller=_bool_env("COPILOT_ENABLE_POLLER"),
+        poller_interval_seconds=float(os.environ.get("COPILOT_POLLER_INTERVAL_SECONDS", "60")),
     )

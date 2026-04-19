@@ -21,6 +21,7 @@ from incident_copilot.background_retry import retry_pending_deliveries
 from incident_copilot.brief_renderer import render_brief_html
 from incident_copilot.config import AppConfig, load_config
 from incident_copilot.delivery_queue import DeliveryQueue
+from incident_copilot.om_poller import poll_once
 from incident_copilot.orchestrator import run_pipeline
 from incident_copilot.slack_sender import build_slack_sender
 from incident_copilot.store import IncidentStore
@@ -44,16 +45,48 @@ def create_app(config: AppConfig | None = None, retry_interval_seconds: float = 
                 log.warning("retry loop error: %s", exc)
             await asyncio.sleep(retry_interval_seconds)
 
+    async def _poll_loop():
+        from incident_copilot.openmetadata_client import OpenMetadataClient
+        cursor_state = {"cursor": 0}
+        while True:
+            try:
+                om_client = OpenMetadataClient.from_env()
+
+                def _dispatch(payload: dict):
+                    envelope = parse_om_alert_payload(payload)
+                    existing = store.fetch_by_id(envelope["incident_id"])
+                    if existing:
+                        return None  # dedup — already seen
+                    slack_sender = build_slack_sender() or (lambda _: False)
+                    result = run_pipeline(envelope, None, slack_sender=slack_sender)
+                    delivery = result["delivery"]["delivery"]
+                    store.save_brief(
+                        brief=result["brief"],
+                        delivery_status=delivery.slack_status if delivery.primary_output == "slack" else delivery.local_status,
+                        primary_output=delivery.primary_output,
+                    )
+                    if cfg.has_slack and delivery.primary_output == "local_mirror":
+                        queue.enqueue(result["brief"]["incident_id"], reason="SLACK_SEND_FAILED")
+                    return result
+
+                summary = poll_once(om_client=om_client, dispatch_fn=_dispatch, cursor=cursor_state["cursor"])
+                cursor_state["cursor"] = summary.get("new_cursor", cursor_state["cursor"])
+            except Exception as exc:  # pragma: no cover — defensive
+                log.warning("poll loop error: %s", exc)
+            await asyncio.sleep(cfg.poller_interval_seconds)
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        task = None
+        tasks = []
         if cfg.has_slack and retry_interval_seconds > 0:
-            task = asyncio.create_task(_retry_loop())
+            tasks.append(asyncio.create_task(_retry_loop()))
+        if cfg.enable_poller and cfg.has_openmetadata:
+            tasks.append(asyncio.create_task(_poll_loop()))
         try:
             yield
         finally:
-            if task:
-                task.cancel()
+            for t in tasks:
+                t.cancel()
 
     app = FastAPI(title="OpenMetadata Incident Copilot", version="0.4.0", lifespan=lifespan)
     app.state.config = cfg
