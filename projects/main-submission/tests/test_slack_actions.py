@@ -76,11 +76,11 @@ def test_valid_signature_accepts_ack(client):
     )
     assert r.status_code == 200
     body_json = r.json()
-    # Response is now a Slack-renderable ephemeral message
-    assert body_json["response_type"] == "ephemeral"
-    assert body_json["replace_original"] is False
+    # Response replaces the original message so the brief visibly transforms
+    assert body_json["replace_original"] is True
     assert "inc-ack-1" in body_json["text"]
     assert "Acknowledged" in body_json["text"]
+    assert "blocks" in body_json
 
 
 def test_invalid_signature_rejected(client):
