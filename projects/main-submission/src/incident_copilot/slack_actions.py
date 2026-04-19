@@ -83,3 +83,26 @@ def apply_action(store, incident_id: str, action: str, user_name: str) -> dict:
         primary_output=row["primary_output"],
     )
     return {"incident_id": incident_id, "action": action, "status": status, "user": user_name}
+
+
+_USER_VISIBLE = {
+    "ack": ":white_check_mark: Acknowledged",
+    "approve": ":white_check_mark: Approved",
+    "deny": ":no_entry: Denied",
+}
+
+
+def render_slack_response(action: str, user_name: str, incident_id: str) -> dict:
+    """Format the response Slack will show back to the clicker.
+
+    Using `response_type: ephemeral` so only the clicker sees it, and
+    `replace_original: false` so the original incident brief stays in the channel
+    (with its buttons) for anyone else.
+    """
+    label = _USER_VISIBLE.get(action, f"Action `{action}` recorded")
+    user = f"<@{user_name}>" if user_name else "user"
+    return {
+        "response_type": "ephemeral",
+        "replace_original": False,
+        "text": f"{label} by {user} · incident `{incident_id}`",
+    }

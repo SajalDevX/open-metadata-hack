@@ -29,6 +29,7 @@ from incident_copilot.slack_actions import (
     SlackActionError,
     apply_action,
     parse_action_payload,
+    render_slack_response,
     verify_slack_signature,
 )
 from incident_copilot.slack_sender import build_slack_sender
@@ -197,11 +198,11 @@ def create_app(config: AppConfig | None = None, retry_interval_seconds: float = 
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         try:
-            result = apply_action(store, parsed["incident_id"], parsed["action"], parsed["user_name"])
+            apply_action(store, parsed["incident_id"], parsed["action"], parsed["user_name"])
         except SlackActionError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-        return result
+        return render_slack_response(parsed["action"], parsed["user_name"], parsed["incident_id"])
 
     @app.get("/admin/retry-queue")
     def retry_queue_snapshot():

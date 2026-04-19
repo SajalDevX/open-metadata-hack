@@ -76,8 +76,11 @@ def test_valid_signature_accepts_ack(client):
     )
     assert r.status_code == 200
     body_json = r.json()
-    assert body_json["incident_id"] == "inc-ack-1"
-    assert body_json["action"] == "ack"
+    # Response is now a Slack-renderable ephemeral message
+    assert body_json["response_type"] == "ephemeral"
+    assert body_json["replace_original"] is False
+    assert "inc-ack-1" in body_json["text"]
+    assert "Acknowledged" in body_json["text"]
 
 
 def test_invalid_signature_rejected(client):
@@ -145,7 +148,8 @@ def test_deny_is_recorded(client):
         },
     )
     assert r.status_code == 200
-    assert r.json()["action"] == "deny"
+    assert "Denied" in r.json()["text"]
+    assert "inc-deny-1" in r.json()["text"]
 
 
 def test_missing_secret_returns_503(tmp_path, monkeypatch):
