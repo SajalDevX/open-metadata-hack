@@ -1,0 +1,21 @@
+services:
+  copilot:
+    build: .
+    image: incident-copilot:latest
+    container_name: incident-copilot
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    volumes:
+      - copilot-data:/app/runtime
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8080/health', timeout=2)"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  copilot-data:
+    driver: local
