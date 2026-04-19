@@ -67,6 +67,29 @@ def test_mcp_mode_falls_back_to_http():
     assert out["failed_test"]["name"] == "tc-1"
 
 
+def test_mcp_mode_uses_transport_client_when_available():
+    env = {"incident_id": "inc-1", "entity_fqn": "svc.db.customer_profiles", "test_case_id": "tc-1"}
+    live_payload = {
+        "failed_test": {"name": "tc-1", "message": "mcp failure", "testType": "tableColumnCountToEqual"},
+        "lineage": [{"fqn": "svc.db.customer_curated", "distance": 1}],
+        "owners": {"asset_owner": "dre-oncall"},
+        "classifications": {"svc.db.customer_curated": ["PII.Sensitive"]},
+    }
+    with patch.dict(os.environ, {"USE_OM_MCP": "true"}, clear=False):
+        with patch("incident_copilot.context_resolver._resolve_via_http") as http_resolver:
+            with patch("incident_copilot.context_resolver.MCPTransportClient.from_env") as from_env:
+                transport = from_env.return_value
+                transport.fetch_incident_context.return_value = live_payload
+
+                out = resolve_context(env, om_client_data={}, max_depth=2)
+
+    http_resolver.assert_not_called()
+    from_env.assert_called_once_with()
+    transport.fetch_incident_context.assert_called_once_with(env, max_depth=2)
+    assert out["failed_test"]["name"] == "tc-1"
+    assert out["impacted_assets"][0]["fqn"] == "svc.db.customer_curated"
+
+
 def test_http_failure_falls_back_to_fixture_payload():
     env = {"incident_id": "inc-1", "entity_fqn": "svc.db.customer_profiles", "test_case_id": "tc-1"}
     fixture_payload = {
