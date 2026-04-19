@@ -57,3 +57,11 @@ def test_build_rca_falls_back_to_template_when_claude_raises():
             result = build_rca({"message": "null ratio exceeded"}, "svc.db.orders")
             assert result.narrative_source == "template"
             assert result.narrative != ""
+
+
+def test_build_rca_falls_back_when_claude_returns_blank():
+    with patch.dict(os.environ, {"OPENROUTER_API_KEY": "sk-or-test"}):
+        with patch("incident_copilot.rca_engine._claude_narrative", return_value="   "):
+            result = build_rca({"message": "null ratio exceeded"}, "svc.db.orders")
+            assert result.narrative_source == "template"
+            assert result.narrative == "Null ratio exceeded threshold — likely caused by upstream null propagation."

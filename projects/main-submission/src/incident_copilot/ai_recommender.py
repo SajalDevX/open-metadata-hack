@@ -20,8 +20,9 @@ def recommend(
 ) -> RecommendationResult:
     if is_available() and top_asset is not None:
         try:
-            bullets = _claude_recommend(failed_test, top_asset, policy)
-            return RecommendationResult(bullets=bullets, source="claude")
+            bullets = [bullet for bullet in _claude_recommend(failed_test, top_asset, policy) if bullet.strip()]
+            if bullets:
+                return RecommendationResult(bullets=bullets, source="claude")
         except Exception:
             pass
     return RecommendationResult(

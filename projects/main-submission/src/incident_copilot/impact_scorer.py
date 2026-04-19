@@ -3,10 +3,18 @@ import math
 from incident_copilot.contracts import ScoredAsset
 
 
+def _coerce_distance(distance: object) -> int:
+    try:
+        normalized = int(distance)
+    except (TypeError, ValueError):
+        return 1
+    return max(1, normalized)
+
+
 def score_asset(asset: dict) -> ScoredAsset:
     business_facing = bool(asset.get("business_facing", False))
     pii_sensitive = "PII.Sensitive" in (asset.get("classifications") or [])
-    distance = asset.get("distance", 1)
+    distance = _coerce_distance(asset.get("distance", 1))
     downstream_count = asset.get("downstream_count", 0)
 
     bf_score = 3.0 if business_facing else 0.0

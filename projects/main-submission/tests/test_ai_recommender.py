@@ -50,6 +50,17 @@ def test_falls_back_when_claude_raises():
             assert len(result.bullets) >= 1
 
 
+def test_claude_empty_list_falls_back_to_policy():
+    with patch.dict(os.environ, {"OPENROUTER_API_KEY": "sk-or-test"}):
+        with patch("incident_copilot.ai_recommender._claude_recommend", return_value=[]):
+            result = recommend({"message": "null ratio"}, TOP_ASSET, ALLOWED_POLICY)
+            assert result.source == "policy_fallback"
+            assert result.bullets == [
+                "Proceed with manual remediation triage.",
+                "Notify asset owner to investigate the root cause.",
+            ]
+
+
 def test_policy_fallback_when_no_asset():
     with patch.dict(os.environ, {"OPENROUTER_API_KEY": "sk-or-test"}):
         result = recommend({"message": "null ratio"}, None, ALLOWED_POLICY)
