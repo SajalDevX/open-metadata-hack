@@ -52,9 +52,94 @@ Updated as features land or issues are discovered.
   that uses Claude to classify novel signals into new cause tree nodes.
 - OpenRouter model is hardcoded to `anthropic/claude-haiku-4-5`; should be an env var.
 
+## Partial coverage of hackathon problem statements
+
+Each of the six problem statements the project targets is partially — not
+fully — addressed. Documenting the specific unaddressed sub-items per issue so
+a reader can see exactly what would complete each one.
+
+### [#26659](https://github.com/open-metadata/OpenMetadata/issues/26659) — Human-readable RCA (~70% covered)
+
+- **Aggregated RCA dashboard** — no cross-incident view grouping by `signal_type`
+  or cause tree node. Dashboard at `/` is a flat incident list. Would need a
+  `/rca-summary` endpoint that buckets incidents by `rca.signal_type` with counts.
+- **Instrument existing checks to emit provenance and diagnostic signals** —
+  we consume OM's test result message as-is. The issue asks for instrumenting
+  OM's test runners themselves to emit richer diagnostic data. Out of scope
+  for a read-only consumer.
+
+### [#26658](https://github.com/open-metadata/OpenMetadata/issues/26658) — DQ Checks Impact scoring (~85% covered)
+
+- **Robustness under changing usage patterns** — judging criterion we never
+  formally benchmarked. Scoring formula is stable by construction
+  (`downstream_count` is the only dynamic term via `log₂`) but we didn't run
+  simulations showing how scores drift under traffic bursts, lineage depth
+  changes, etc.
+
+### [#26660](https://github.com/open-metadata/OpenMetadata/issues/26660) — AI-Powered DQ Recommendations (~30% covered — biggest gap)
+
+- **Proactive test suggestion** is the core ask: analyze a table's profile
+  and suggest which DQ tests to *add*. Our `ai_recommender.py` is reactive —
+  it suggests what to do *about* a failed test. Different axis entirely.
+- **Reading column types, names, descriptions, sample data** — we don't query
+  the OpenMetadata profile endpoint at all.
+- **Suggesting test definitions from the template library** — no integration
+  with OpenMetadata's built-in test templates.
+- **Creating test cases with default parameters** — we don't write to OM.
+- *Fix path:* add a new `suggest_tests_for_table(entity_fqn)` MCP tool that
+  pulls the table's profile + column metadata from OM, prompts Claude for a
+  list of relevant test definitions with parameters, and returns a JSON list.
+  Estimated effort: < 1 hour.
+
+### [#26645](https://github.com/open-metadata/OpenMetadata/issues/26645) — Multi-MCP Agent Orchestrator (~50% covered)
+
+- **Google Workspace integration** — issue's examples involve creating Google
+  Sheets, Google Docs. We only do Slack. Would need a Google Workspace MCP
+  client + scope / auth setup.
+- **Cross-platform workflows demonstration** — we compose OM → copilot → Slack,
+  but we haven't demonstrated a multi-step agent workflow like
+  "find DQ failures → create Google Sheet summary → post to Slack channel".
+
+### [#26609](https://github.com/open-metadata/OpenMetadata/issues/26609) — New MCP Tools (1-of-5 sub-options covered)
+
+- The issue offered five independent sub-options; we shipped the Alert/Notification
+  one via `notify_slack`. Other four sub-options we didn't build:
+  - Data Insights / KPI tools
+  - Workflow automation tools (trigger/monitor ingestion pipelines)
+  - Domain & Data Product management
+  - Import/Export tools
+
+### [#26651](https://github.com/open-metadata/OpenMetadata/issues/26651) — Slack App for OpenMetadata (~40% covered)
+
+- **`/metadata search` slash command** — no Slack slash command registered.
+  Would need to register one in the Slack app config and route it to a new
+  `POST /slack/commands` endpoint that queries OpenMetadata's search API.
+- **Daily digest** — no scheduled job that posts a daily summary of metadata
+  changes, quality status, or pending governance to a channel.
+- **"Hey @metadata-bot, who owns the payments table?"** — no event-listener
+  for mentions + natural language Q&A. Would need Slack Events API subscription
+  and a Claude-backed Q&A flow.
+
+## Problem-statement coverage honesty score
+
+| Issue | Title | Coverage |
+|---|---|---|
+| #26659 | Human-readable RCA | ~70% |
+| #26658 | DQ Impact scoring | ~85% |
+| #26660 | AI-Powered DQ Recommendations | ~30% |
+| #26645 | Multi-MCP Agent Orchestrator | ~50% |
+| #26609 | New MCP Alert/Notification Tools | 100% of this slice, 0% of other slices |
+| #26651 | Slack App for OpenMetadata | ~40% |
+
+Net: **6 of 22** hackathon problem statements touched, **3 substantially** covered
+(#26659, #26658, #26609), **3 partially** covered (#26660, #26645, #26651),
+**0 fully** covered end-to-end. This is deliberate — we prioritised depth and
+integration coherence in one coherent product over breadth across unrelated
+half-demos.
+
 ## Verified working (as of latest commit)
 
-- **179 tests pass**
+- **190 tests pass**
 - Live FastAPI service:
   - `GET  /` — HTML dashboard with recent incidents + integration-status pills
   - `POST /webhooks/incidents` — ingest OM alert payloads
