@@ -29,6 +29,21 @@ Updated as features land or issues are discovered.
   at higher rates.
 - **HTML renderer is dark-theme only.** No light-mode toggle.
 
+## Spotted during live OM testing (2026-04-19)
+
+- **`webhook_parser` drops `entity.testCaseResult.result`** — OM's alert payload
+  includes the failed-test message directly, but the parser only extracts
+  `{incident_id, entity_fqn, test_case_id, severity, occurred_at, raw_ref}` and
+  lets the Context Resolver re-query OM for the full test case. When the
+  test_case_id doesn't exist in OM (e.g. we wrote it ad-hoc), we fall back
+  to empty `failed_test` → signal_type="unknown" → generic RCA narrative.
+  Fix: thread the `testCaseResult.result` into the envelope as a `failed_test`
+  hint, consumed by Context Resolver when OM lookup fails.
+- **Port 8080 collision in local-dev OpenMetadata stack** — Airflow (bundled in
+  OM's compose) binds 8080. The copilot default also was 8080. Moved copilot
+  to `COPILOT_PORT=8088` in `.env`. Docker compose users are unaffected since
+  they get their own network namespace.
+
 ## Things I'd like to revisit
 
 - `score_impact` MCP tool currently creates a synthetic incident envelope; would be
