@@ -10,10 +10,20 @@ import uvicorn
 
 from incident_copilot.app import create_app
 from incident_copilot.config import load_config
+from incident_copilot.startup_validator import validate_startup
 
 
 def main():
     cfg = load_config()
+    report = validate_startup(cfg)
+    for err in report.errors:
+        print(f"  ERROR: {err}")
+    for warn in report.warnings:
+        print(f"  warn:  {warn}")
+    if not report.ok:
+        print("Aborting due to config errors above.")
+        raise SystemExit(2)
+
     app = create_app(cfg)
     print(f"Starting incident-copilot service on http://{cfg.host}:{cfg.port}")
     print(f"  DB:            {cfg.db_path}")
