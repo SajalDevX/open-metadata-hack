@@ -11,6 +11,20 @@ venv/
 .coverage
 htmlcov/
 
+# Secrets — never commit
+.env
+.env.local
+.env.*.local
+!.env.example
+*.pem
+*.key
+
+# Persisted service data
+projects/main-submission/runtime/incidents.db
+projects/main-submission/runtime/incidents.db-journal
+projects/main-submission/runtime/incidents.db-wal
+projects/main-submission/runtime/incidents.db-shm
+
 # Transient demo outputs from verify.sh
 projects/main-submission/runtime/local_mirror/run_*.json
 projects/main-submission/runtime/local_mirror/run_*.html
