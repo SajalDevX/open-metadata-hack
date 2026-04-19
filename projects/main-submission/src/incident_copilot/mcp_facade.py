@@ -8,6 +8,7 @@ from incident_copilot.context_resolver import resolve_context
 from incident_copilot.impact import select_top_impacted_assets
 from incident_copilot.impact_scorer import score_assets
 from incident_copilot.rca_engine import build_rca
+from incident_copilot.slack_sender import build_slack_sender
 
 mcp = FastMCP("incident-copilot")
 
@@ -63,6 +64,26 @@ def notify_slack_tool(incident_id: str, brief: dict | None = None) -> dict:
         canonical_brief = json.dumps(brief, sort_keys=True, separators=(",", ":"), default=str)
         result["brief"] = brief
         result["payload_hash"] = hashlib.sha256(canonical_brief.encode("utf-8")).hexdigest()
+
+    slack_sender = build_slack_sender()
+    if slack_sender is None:
+        return result
+
+    payload = {"channel": "slack", "incident_id": incident_id}
+    if brief is not None:
+        payload["brief"] = brief
+
+    try:
+        sent = bool(slack_sender(payload))
+    except Exception:
+        sent = False
+
+    if sent:
+        result["status"] = "sent"
+        result.pop("fallback", None)
+    else:
+        result["status"] = "failed"
+        result["fallback"] = "local_mirror"
     return result
 
 

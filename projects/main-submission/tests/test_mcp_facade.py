@@ -162,6 +162,44 @@ def test_notify_slack_returns_canonical_payload_hash():
     assert result_b["payload_hash"] == expected_hash
 
 
+def test_notify_slack_attempts_sender_when_configured(monkeypatch):
+    brief = {
+        "incident_id": "inc-2",
+        "policy_state": "approval_required",
+        "what_failed": {"text": "x", "evidence_refs": ["incident_ref"]},
+    }
+    sent_payloads = []
+
+    def fake_build_slack_sender():
+        def fake_sender(payload):
+            sent_payloads.append(payload)
+            return True
+
+        return fake_sender
+
+    monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.slack.test/services/T000/B000/TEST")
+    monkeypatch.setattr("incident_copilot.mcp_facade.build_slack_sender", fake_build_slack_sender, raising=False)
+
+    result = notify_slack_tool(incident_id="inc-2", brief=brief)
+
+    assert result["status"] == "sent"
+    assert result["incident_id"] == "inc-2"
+    assert result["payload_hash"] == hashlib.sha256(
+        json.dumps(brief, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    ).hexdigest()
+    assert sent_payloads == [{"channel": "slack", "incident_id": "inc-2", "brief": brief}]
+
+
+def test_notify_slack_preserves_not_configured_fallback(monkeypatch):
+    monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
+    monkeypatch.delenv("SLACK_WEBHOOK", raising=False)
+
+    result = notify_slack_tool(incident_id="inc-1", brief={"incident_id": "inc-1"})
+
+    assert result["status"] == "not_configured"
+    assert result["fallback"] == "local_mirror"
+
+
 def test_mcp_tools_are_callable():
     assert isinstance(get_rca("tc-null-1", "null_ratio_exceeded"), dict)
     assert isinstance(score_impact("svc.db.orders"), list)
