@@ -28,6 +28,40 @@ Extend the 7-block base pipeline with 4 new blocks that cover all six problem st
 - Claude API: RCA narrative (1-2 sentences from cause tree), "What to do next" bullets (from failure + profile context).
 - Fallback guarantee: if any Claude call fails, template strings from the deterministic layer fill the block. No blank brief fields ever.
 
+## Desired Prototype (Hackathon Cut)
+
+For the hackathon, the prototype is successful only if one command can run a full incident flow and produce the same decision in repeat runs.
+
+**Prototype-critical requirements (must ship):**
+- Deterministic policy decision (`PII.Sensitive` => `approval_required`)
+- RCA block always non-empty (Claude or fallback)
+- Impact block with numeric score + reason string
+- Action block with at least one recommendation bullet
+- Parity output across Slack payload and local mirror
+- Parity output across direct HTTP and `USE_OM_MCP=true` replay runs
+
+**Nice-to-have (only after prototype is stable):**
+- Richer recommendation prompt tuning
+- Additional signal types beyond the initial 5
+- Non-replay live metadata fetch hardening
+
+## Integration Contract (How Components Combine)
+
+Each component has one strict handoff contract. If this contract is broken, the pipeline is considered broken even if the demo still renders text.
+
+1. `Context Resolver` -> `Impact Prioritizer`:
+must return bounded impacted assets (depth <= 2, top <= 3) with classifications and ownership metadata.
+2. `Impact Prioritizer` -> `Impact Scorer`:
+must pass distance and downstream counts; scorer returns deterministic numeric score + score_reason.
+3. `Context Resolver` -> `RCA Engine`:
+must pass failed test payload; RCA returns non-empty narrative with explicit source (`claude` or `template`).
+4. `Policy Advisor` -> `AI Recommender`:
+policy state is authoritative; recommender may change wording, never policy decision.
+5. `Brief Generator` -> `Delivery Layer`:
+canonical brief payload is the single source for both Slack and local mirror rendering.
+6. `Orchestrator` -> `MCP Facade`:
+`triage_incident` must return the same canonical brief payload shape used by direct pipeline execution.
+
 ## Architecture — 11 Blocks
 
 ```
@@ -168,7 +202,7 @@ class RecommendationResult:
 
 | Tool | Input | Output |
 |------|-------|--------|
-| `triage_incident(incident_id, entity_fqn)` | Incident ID + asset FQN | Full 4-block brief as JSON |
+| `triage_incident(incident_id, entity_fqn)` | Incident ID + asset FQN | 4-block brief + delivery metadata JSON |
 | `score_impact(entity_fqn, lineage_depth)` | Asset FQN | List of `ScoredAsset` with score_reason |
 | `get_rca(test_case_id, signal_type)` | Test case ID | `RCAResult` with cause tree + narrative |
 | `notify_slack(incident_id)` | Incident ID | Delivery status (sent/failed/mirror) |
@@ -205,6 +239,8 @@ All base rules preserved:
 6. If Claude Recommender call fails, `source = "policy_fallback"` — brief still renders.
 7. If OpenMetadata MCP unavailable, Context Resolver falls back to direct HTTP.
 8. All Claude calls have a 3-second timeout with immediate fallback.
+9. If Claude returns blank or unparsable text, treat as failure and use deterministic fallback.
+10. One-click demo uses replay fixtures for both event and `om_data`; no hidden runtime state.
 
 ## Success Criteria (additions to base)
 
@@ -213,6 +249,8 @@ All base rules preserved:
 8. "What to do next" block contains ≥ 1 bullet when Claude is available.
 9. MCP Facade responds to `triage_incident` tool call and returns parity brief with Slack/local mirror.
 10. `USE_OM_MCP=true` mode produces same brief as direct HTTP mode on replay fixture.
+11. Slack payload and persisted local mirror share the same canonical core fields (parity checkable by hash or normalized JSON compare).
+12. `triage_incident` MCP output on replay fixtures matches direct `run_pipeline` output for the same incident.
 
 ## Problem Statement Coverage Map
 
