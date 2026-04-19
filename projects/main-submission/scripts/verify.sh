@@ -4,6 +4,11 @@ set -e
 
 cd "$(dirname "$0")/.."
 
+PYTHON="python3"
+if [ -x ".venv/bin/python" ]; then
+  PYTHON=".venv/bin/python"
+fi
+
 PASS="\033[32m✓\033[0m"
 FAIL="\033[31m✗\033[0m"
 BOLD="\033[1m"
@@ -13,22 +18,22 @@ RESET="\033[0m"
 section() { echo; echo -e "${BOLD}━━━ $1 ━━━${RESET}"; }
 
 section "1. Full test suite"
-python3 -m pytest tests/ -q
+$PYTHON -m pytest tests/ -q
 echo -e "${PASS} all tests pass"
 
 section "2. One-click demo"
-python3 scripts/run_demo.py \
+$PYTHON scripts/run_demo.py \
   --replay runtime/fixtures/replay_event.json \
   --context runtime/fixtures/replay_om_context.json \
   --output runtime/local_mirror/latest_brief.json
 echo -e "${PASS} demo completed"
 
 section "3. Determinism check (two runs, hash compare)"
-python3 scripts/run_demo.py \
+$PYTHON scripts/run_demo.py \
   --replay runtime/fixtures/replay_event.json \
   --context runtime/fixtures/replay_om_context.json \
   --output runtime/local_mirror/run_a.json > /dev/null
-python3 scripts/run_demo.py \
+$PYTHON scripts/run_demo.py \
   --replay runtime/fixtures/replay_event.json \
   --context runtime/fixtures/replay_om_context.json \
   --output runtime/local_mirror/run_b.json > /dev/null
@@ -45,7 +50,7 @@ else
 fi
 
 section "4. Smoke test — pipeline from Python"
-python3 - <<'PY'
+$PYTHON - <<'PY'
 import sys, json
 sys.path.insert(0, "src")
 from incident_copilot.orchestrator import run_pipeline
@@ -68,7 +73,7 @@ PY
 echo -e "${PASS} pipeline smoke test"
 
 section "5. MCP facade tools (direct call, no server)"
-python3 - <<'PY'
+$PYTHON - <<'PY'
 import sys
 sys.path.insert(0, "src")
 from incident_copilot.mcp_facade import get_rca_tool, score_impact_tool, notify_slack_tool

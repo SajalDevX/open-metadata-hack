@@ -42,7 +42,10 @@ def build_rca(failed_test: dict, entity_fqn: str, use_ai: bool = True) -> RCARes
     if use_ai and is_available():
         try:
             narrative = _claude_narrative(signal, cause_tree, failed_test, entity_fqn)
-            source = "claude"
+            if narrative.strip():
+                source = "claude"
+            else:
+                narrative = None
         except Exception:
             pass
 
