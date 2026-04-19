@@ -1,5 +1,6 @@
 import os
 
+from incident_copilot.mcp_transport_client import MCPTransportClient
 from incident_copilot.openmetadata_client import OpenMetadataClient, OpenMetadataClientError
 
 
@@ -13,12 +14,8 @@ def _resolve_via_http(envelope, max_depth=2):
 
 
 def _resolve_via_mcp(envelope, max_depth=2):
-    # The full MCP transport may be provided by external runtime glue.
-    # For local parity and deterministic tests, we bridge to direct HTTP.
-    bridge_mode = (os.environ.get("OPENMETADATA_MCP_BRIDGE") or "direct_http").strip().lower()
-    if bridge_mode == "direct_http":
-        return _resolve_via_http(envelope, max_depth=max_depth)
-    raise RuntimeError(f"Unsupported MCP bridge mode: {bridge_mode}")
+    client = MCPTransportClient.from_env()
+    return client.fetch_incident_context(envelope, max_depth=max_depth)
 
 
 def _normalize_payload(envelope, payload, max_depth=2):
