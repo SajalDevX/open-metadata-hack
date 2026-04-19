@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+from incident_copilot.brief_renderer import render_brief_html
 from incident_copilot.demo_harness import run_replay_command
 
 
@@ -56,10 +57,14 @@ def main():
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     result = run_replay_command(replay_event, om_data, args.output)
 
+    html_path = Path(args.output).with_suffix(".html")
+    html_path.write_text(render_brief_html(result["brief"]), encoding="utf-8")
+
     print(f"Incident: {result['brief']['incident_id']}")
     print(f"Policy: {result['brief']['policy_state']}")
     print(f"Delivery primary: {result['delivery']['delivery'].primary_output}")
-    print(f"Brief written to: {args.output}")
+    print(f"Brief JSON: {args.output}")
+    print(f"Brief HTML: {html_path}")
 
 
 if __name__ == "__main__":
