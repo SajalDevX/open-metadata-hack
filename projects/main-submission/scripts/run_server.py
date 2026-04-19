@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+"""Run the live incident copilot service via uvicorn."""
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "src"))
+
+import uvicorn
+
+from incident_copilot.app import create_app
+from incident_copilot.config import load_config
+
+
+def main():
+    cfg = load_config()
+    app = create_app(cfg)
+    print(f"Starting incident-copilot service on http://{cfg.host}:{cfg.port}")
+    print(f"  DB:            {cfg.db_path}")
+    print(f"  OpenMetadata:  {'connected' if cfg.has_openmetadata else 'not configured'}")
+    print(f"  Slack:         {'connected' if cfg.has_slack else 'not configured'}")
+    print(f"  AI narratives: {'enabled' if cfg.has_ai else 'template fallback'}")
+    uvicorn.run(app, host=cfg.host, port=cfg.port, log_level="info")
+
+
+if __name__ == "__main__":
+    main()
