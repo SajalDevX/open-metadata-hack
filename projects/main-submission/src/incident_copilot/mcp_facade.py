@@ -1,8 +1,27 @@
+import hashlib
+import json
+from dataclasses import asdict, is_dataclass
+
 from fastmcp import FastMCP
 
+from incident_copilot.context_resolver import resolve_context
+from incident_copilot.impact import select_top_impacted_assets
+from incident_copilot.impact_scorer import score_assets
 from incident_copilot.rca_engine import build_rca
 
 mcp = FastMCP("incident-copilot")
+
+
+def _serialize_scored_asset(asset) -> dict:
+    if isinstance(asset, dict):
+        return dict(asset)
+    if is_dataclass(asset):
+        return asdict(asset)
+    payload = {}
+    for key in ("fqn", "score", "score_reason", "classifications", "business_facing", "distance"):
+        if hasattr(asset, key):
+            payload[key] = getattr(asset, key)
+    return payload
 
 
 def get_rca_tool(test_case_id: str, signal_type: str = "unknown") -> dict:
@@ -20,20 +39,36 @@ def get_rca_tool(test_case_id: str, signal_type: str = "unknown") -> dict:
 
 
 def score_impact_tool(entity_fqn: str, lineage_depth: int = 2) -> list[dict]:
-    return []
+    envelope = {
+        "incident_id": f"impact-{entity_fqn}",
+        "entity_fqn": entity_fqn,
+        "test_case_id": f"tc-{entity_fqn}",
+        "severity": "unknown",
+        "occurred_at": "",
+        "raw_ref": entity_fqn,
+    }
+    context = resolve_context(envelope, om_client_data=None, max_depth=lineage_depth)
+    impacted_assets = select_top_impacted_assets(context["impacted_assets"], max_assets=3, max_depth=lineage_depth)
+    scored_assets = score_assets(impacted_assets)
+    return [_serialize_scored_asset(asset) for asset in scored_assets]
 
 
-def notify_slack_tool(incident_id: str) -> dict:
-    return {
+def notify_slack_tool(incident_id: str, brief: dict | None = None) -> dict:
+    result = {
         "status": "not_configured",
         "incident_id": incident_id,
         "fallback": "local_mirror",
     }
+    if brief is not None:
+        canonical_brief = json.dumps(brief, sort_keys=True, separators=(",", ":"), default=str)
+        result["brief"] = brief
+        result["payload_hash"] = hashlib.sha256(canonical_brief.encode("utf-8")).hexdigest()
+    return result
 
 
 @mcp.tool
 def triage_incident(incident_id: str, entity_fqn: str) -> dict:
-    """Run full incident triage pipeline and return a 4-block brief."""
+    """Run full incident triage pipeline and return the canonical triage envelope."""
     from incident_copilot.orchestrator import run_pipeline
     raw_event = {
         "incident_id": incident_id,
@@ -43,9 +78,8 @@ def triage_incident(incident_id: str, entity_fqn: str) -> dict:
         "occurred_at": "",
         "raw_ref": incident_id,
     }
-    om_data = {"failed_test": {}, "lineage": [], "owners": {}, "classifications": {}}
-    result = run_pipeline(raw_event, om_data, slack_sender=lambda _: False)
-    return result["brief"]
+    om_data = resolve_context(raw_event, om_client_data=None, max_depth=2)
+    return run_pipeline(raw_event, om_data, slack_sender=lambda _: False)
 
 
 @mcp.tool
@@ -61,9 +95,9 @@ def get_rca(test_case_id: str, signal_type: str = "unknown") -> dict:
 
 
 @mcp.tool
-def notify_slack(incident_id: str) -> dict:
+def notify_slack(incident_id: str, brief: dict | None = None) -> dict:
     """Trigger Slack notification for an incident brief."""
-    return notify_slack_tool(incident_id)
+    return notify_slack_tool(incident_id, brief=brief)
 
 
 if __name__ == "__main__":
