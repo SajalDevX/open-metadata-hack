@@ -62,7 +62,10 @@ def test_mcp_mode_falls_back_to_http():
         "classifications": {},
     }
     with patch.dict(os.environ, {"USE_OM_MCP": "true"}, clear=False):
-        with patch("incident_copilot.context_resolver._resolve_via_mcp", side_effect=RuntimeError("mcp unavailable")):
+        with patch(
+            "incident_copilot.context_resolver._resolve_via_mcp",
+            side_effect=MCPTransportClientError("mcp unavailable"),
+        ):
             with patch("incident_copilot.context_resolver._resolve_via_http", return_value=live_payload):
                 out = resolve_context(env, om_client_data={}, max_depth=2)
     assert "OM_MCP_FALLBACK_TO_HTTP" in out["fallback_reason_codes"]
@@ -124,7 +127,10 @@ def test_http_failure_falls_back_to_fixture_payload():
         "classifications": {},
     }
     with patch.dict(os.environ, {"OM_CONTEXT_SOURCE": "direct_http"}, clear=False):
-        with patch("incident_copilot.context_resolver._resolve_via_http", side_effect=Exception("http down")):
+        with patch(
+            "incident_copilot.context_resolver._resolve_via_http",
+            side_effect=OpenMetadataClientError("http down"),
+        ):
             out = resolve_context(env, om_client_data=fixture_payload, max_depth=2)
     assert "OM_HTTP_FALLBACK_TO_FIXTURE" in out["fallback_reason_codes"]
     assert out["failed_test"]["name"] == "fixture"
@@ -139,7 +145,10 @@ def test_mcp_and_http_failures_record_both_fallback_codes_in_order():
         "classifications": {},
     }
     with patch.dict(os.environ, {"USE_OM_MCP": "true"}, clear=False):
-        with patch("incident_copilot.context_resolver._resolve_via_mcp", side_effect=RuntimeError("mcp down")):
+        with patch(
+            "incident_copilot.context_resolver._resolve_via_mcp",
+            side_effect=MCPTransportClientError("mcp down"),
+        ):
             with patch(
                 "incident_copilot.context_resolver._resolve_via_http",
                 side_effect=OpenMetadataClientError("http down"),
@@ -151,3 +160,29 @@ def test_mcp_and_http_failures_record_both_fallback_codes_in_order():
     assert "OM_HTTP_FALLBACK_TO_FIXTURE" in codes
     assert codes.index("OM_MCP_FALLBACK_TO_HTTP") < codes.index("OM_HTTP_FALLBACK_TO_FIXTURE")
     assert out["failed_test"]["name"] == "fixture"
+
+
+def test_mcp_unexpected_exception_bubbles_up():
+    env = {"incident_id": "inc-1", "entity_fqn": "svc.db.customer_profiles", "test_case_id": "tc-1"}
+    with patch.dict(os.environ, {"USE_OM_MCP": "true"}, clear=False):
+        with patch("incident_copilot.context_resolver._resolve_via_mcp", side_effect=RuntimeError("boom")):
+            with patch("incident_copilot.context_resolver._resolve_via_http") as http_resolver:
+                try:
+                    resolve_context(env, om_client_data={}, max_depth=2)
+                except RuntimeError as exc:
+                    assert str(exc) == "boom"
+                else:
+                    raise AssertionError("Expected RuntimeError to bubble up")
+    http_resolver.assert_not_called()
+
+
+def test_http_unexpected_exception_bubbles_up():
+    env = {"incident_id": "inc-1", "entity_fqn": "svc.db.customer_profiles", "test_case_id": "tc-1"}
+    with patch.dict(os.environ, {"OM_CONTEXT_SOURCE": "direct_http"}, clear=False):
+        with patch("incident_copilot.context_resolver._resolve_via_http", side_effect=RuntimeError("boom")):
+            try:
+                resolve_context(env, om_client_data={}, max_depth=2)
+            except RuntimeError as exc:
+                assert str(exc) == "boom"
+            else:
+                raise AssertionError("Expected RuntimeError to bubble up")

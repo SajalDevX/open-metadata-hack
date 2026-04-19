@@ -246,7 +246,7 @@ def _ensure_seeded_hierarchy(
     return target_fqn, actions
 
 
-def main() -> None:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--replay", default="runtime/fixtures/replay_event.json")
     parser.add_argument("--output", default="runtime/local_mirror/live_om_validation_report.json")
@@ -265,10 +265,15 @@ def main() -> None:
     )
     parser.add_argument(
         "--seed-create-if-missing",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=True,
         help="Create missing service/database/schema/table entities before replay assertion.",
     )
+    return parser
+
+
+def main() -> None:
+    parser = _build_parser()
     args = parser.parse_args()
 
     base_url = _normalize_base_url(args.openmetadata_base_url)

@@ -97,3 +97,47 @@ def test_fetch_incident_context_maps_fixture_fqn_to_service_prefixed_fqn():
     assert out["lineage"][0]["fqn"] == "demo_mysql.customer_analytics.curated.customer_curated"
     assert f"/v1/lineage/table/name/{original_fqn}" in client.called_paths
     assert f"/v1/lineage/table/name/{mapped_fqn}" in client.called_paths
+
+
+def test_pick_test_case_ignores_cross_entity_direct_match():
+    entity_fqn = "svc.db.customer_profiles"
+    test_case_hint = "tc-null-ratio"
+    direct_cross_entity = {
+        "name": test_case_hint,
+        "fullyQualifiedName": "svc.db.other_table.tc-null-ratio",
+    }
+    listed_for_entity = {
+        "name": test_case_hint,
+        "fullyQualifiedName": f"{entity_fqn}.tc-null-ratio",
+    }
+    responses = {
+        (
+            f"/v1/dataQuality/testCases/name/{test_case_hint}",
+            (("fields", "testCaseResult,testDefinition,owners,tags"),),
+        ): direct_cross_entity,
+        (
+            "/v1/dataQuality/testCases",
+            (("entityFQN", entity_fqn), ("fields", "testCaseResult,testDefinition,owners,tags"), ("limit", 25)),
+        ): {"data": [listed_for_entity]},
+    }
+    client = FakeClient(responses, raise_on_missing=True)
+
+    picked = client._pick_test_case(test_case_hint, entity_fqn)
+
+    assert picked is not None
+    assert picked["fullyQualifiedName"] == f"{entity_fqn}.tc-null-ratio"
+
+
+def test_test_case_belongs_to_entity_checks_fqn_prefix():
+    client = FakeClient({})
+    entity_fqn = "svc.db.customer_profiles"
+
+    assert client._test_case_belongs_to_entity(
+        {"fullyQualifiedName": "svc.db.customer_profiles.tc-null-ratio"},
+        entity_fqn,
+    )
+    assert not client._test_case_belongs_to_entity(
+        {"fullyQualifiedName": "svc.db.other_table.tc-null-ratio"},
+        entity_fqn,
+    )
+    assert not client._test_case_belongs_to_entity({}, entity_fqn)

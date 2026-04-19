@@ -11,7 +11,6 @@ from incident_copilot.mcp_facade import (
     score_impact_tool,
     triage_incident,
 )
-from incident_copilot.orchestrator import run_pipeline
 
 
 def test_get_rca_returns_cause_tree_and_narrative():
@@ -90,7 +89,7 @@ def test_score_impact_uses_pipeline_scoring_path(monkeypatch):
     ]
 
 
-def test_triage_incident_returns_canonical_envelope_and_matches_pipeline_core_fields(monkeypatch):
+def test_triage_incident_delegates_to_pipeline_without_pre_resolve(monkeypatch):
     incident_id = "inc-input-42"
     entity_fqn = "svc.db.synthetic_orders"
     expected_event = {
@@ -101,33 +100,28 @@ def test_triage_incident_returns_canonical_envelope_and_matches_pipeline_core_fi
         "occurred_at": "",
         "raw_ref": incident_id,
     }
-    context = {
-        "incident_id": incident_id,
-        "failed_test": {"id": "tc-synthetic", "message": "null_ratio_exceeded", "threshold": 0.01, "observedValue": 0.2},
-        "impacted_assets": [
-            {"fqn": "svc.db.synthetic_orders", "distance": 1, "business_facing": True, "downstream_count": 2}
-        ],
-        "owners": {"svc.db.synthetic_orders": "team:data-eng"},
-        "classifications": {"svc.db.synthetic_orders": ["PII.Sensitive"]},
-        "fallback_reason_codes": [],
-    }
-    calls = []
+    captured = {}
+    expected_result = {"brief": {"incident_id": incident_id}, "delivery": {"delivery": {"primary_output": "local_mirror"}}}
 
-    def fake_resolve_context(envelope, om_client_data=None, max_depth=2):
-        calls.append((envelope, om_client_data, max_depth))
-        return context
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("mcp_facade.resolve_context should not be called by triage_incident")
 
-    monkeypatch.setattr("incident_copilot.mcp_facade.resolve_context", fake_resolve_context, raising=False)
+    def fake_run_pipeline(raw_event, om_data, slack_sender, mirror_writer=None):
+        captured["raw_event"] = raw_event
+        captured["om_data"] = om_data
+        captured["slack_sender_result"] = slack_sender({"incident_id": incident_id})
+        captured["mirror_writer"] = mirror_writer
+        return expected_result
 
-    expected = run_pipeline(expected_event, context, slack_sender=lambda _brief: False)
+    monkeypatch.setattr("incident_copilot.mcp_facade.resolve_context", fail_if_called, raising=False)
+    monkeypatch.setattr("incident_copilot.orchestrator.run_pipeline", fake_run_pipeline, raising=False)
+
     result = triage_incident(incident_id, entity_fqn)
 
-    assert "brief" in result
-    assert "delivery" in result
-    assert calls == [(expected_event, None, 2)]
-    for key in ["incident_id", "what_failed", "what_is_impacted", "who_acts_first", "what_to_do_next", "policy_state"]:
-        assert result["brief"][key] == expected["brief"][key]
-    assert result["delivery"]["delivery"].primary_output == expected["delivery"]["delivery"].primary_output
+    assert result == expected_result
+    assert captured["raw_event"] == expected_event
+    assert captured["om_data"] is None
+    assert captured["slack_sender_result"] is False
 
 
 def test_notify_slack_returns_canonical_payload_hash(monkeypatch):

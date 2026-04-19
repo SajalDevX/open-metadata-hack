@@ -99,8 +99,7 @@ def triage_incident(incident_id: str, entity_fqn: str) -> dict:
         "occurred_at": "",
         "raw_ref": incident_id,
     }
-    om_data = resolve_context(raw_event, om_client_data=None, max_depth=2)
-    return run_pipeline(raw_event, om_data, slack_sender=lambda _: False)
+    return run_pipeline(raw_event, None, slack_sender=lambda _: False)
 
 
 @mcp.tool

@@ -151,14 +151,20 @@ class OpenMetadataClient:
         except OpenMetadataClientError:
             return None
 
+    def _test_case_belongs_to_entity(self, test_case: dict[str, Any] | None, entity_fqn: str) -> bool:
+        if not test_case or not entity_fqn:
+            return False
+        case_fqn = test_case.get("fullyQualifiedName") or ""
+        return case_fqn.startswith(f"{entity_fqn}.")
+
     def _pick_test_case(self, test_case_hint: str, entity_fqn: str) -> dict[str, Any] | None:
         direct = self._get_test_case_by_name(test_case_hint)
-        if direct:
+        if self._test_case_belongs_to_entity(direct, entity_fqn):
             return direct
 
         if _is_uuid_like(test_case_hint):
             by_id = self._get_test_case_by_id(test_case_hint)
-            if by_id:
+            if self._test_case_belongs_to_entity(by_id, entity_fqn):
                 return by_id
 
         listed = self._list_test_cases_for_entity(entity_fqn)
