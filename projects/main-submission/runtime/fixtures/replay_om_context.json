@@ -1,0 +1,20 @@
+{
+  "failed_test": {
+    "name": "null_ratio_customer_id",
+    "message": "null ratio on customer_id column exceeded 15% threshold",
+    "testType": "columnValueNullRatioExceeded"
+  },
+  "lineage": [
+    {"fqn": "customer_analytics.curated.customer_curated", "distance": 1, "business_facing": false, "downstream_count": 3},
+    {"fqn": "customer_analytics.marts.customer_dashboard", "distance": 2, "business_facing": true, "downstream_count": 1}
+  ],
+  "owners": {
+    "asset_owner": "dre-oncall",
+    "domain_owner": "customer-analytics-lead",
+    "team_owner": "data-reliability"
+  },
+  "classifications": {
+    "customer_analytics.curated.customer_curated": ["PII.Sensitive"],
+    "customer_analytics.marts.customer_dashboard": []
+  }
+}

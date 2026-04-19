@@ -1,0 +1,33 @@
+{
+  "brief": {
+    "incident_id": "inc-replay-demo",
+    "policy_state": "approval_required",
+    "what_failed": {
+      "evidence_refs": [
+        "incident_ref",
+        "test_ref"
+      ],
+      "text": "null ratio on customer_id column exceeded 15% threshold"
+    },
+    "what_is_impacted": {
+      "evidence_refs": [
+        "lineage_ref"
+      ],
+      "text": "customer_analytics.marts.customer_dashboard, customer_analytics.curated.customer_curated"
+    },
+    "what_to_do_next": {
+      "evidence_refs": [
+        "policy_ref",
+        "classification_ref"
+      ],
+      "text": "Escalate to data steward for approval"
+    },
+    "who_acts_first": {
+      "evidence_refs": [
+        "owner_ref"
+      ],
+      "text": "dre-oncall via asset_owner"
+    }
+  },
+  "channel": "local_mirror"
+}
