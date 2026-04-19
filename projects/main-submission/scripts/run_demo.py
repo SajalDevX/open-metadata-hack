@@ -11,6 +11,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from incident_copilot.brief_renderer import render_brief_html
 from incident_copilot.demo_harness import run_replay_command
+from incident_copilot.terminal_renderer import render_brief_terminal
 
 
 def main():
@@ -60,8 +61,10 @@ def main():
     html_path = Path(args.output).with_suffix(".html")
     html_path.write_text(render_brief_html(result["brief"]), encoding="utf-8")
 
-    print(f"Incident: {result['brief']['incident_id']}")
-    print(f"Policy: {result['brief']['policy_state']}")
+    use_color = sys.stdout.isatty()
+    print()
+    print(render_brief_terminal(result["brief"], use_color=use_color))
+    print()
     print(f"Delivery primary: {result['delivery']['delivery'].primary_output}")
     print(f"Brief JSON: {args.output}")
     print(f"Brief HTML: {html_path}")
