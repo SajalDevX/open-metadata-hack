@@ -8,7 +8,8 @@ def test_parse_test_case_result_alert():
         "entity": {
             "id": "tc-uuid-1",
             "name": "null_ratio_customer_id",
-            "fullyQualifiedName": "svc.db.customer_profiles.customer_id.null_ratio_customer_id",
+            # 5-part FQN: service.database.schema.table.testName — trim to table.
+            "fullyQualifiedName": "svc.db.schema.customer_profiles.null_ratio_customer_id",
             "testDefinition": {"name": "columnValueNullRatioExceeded"},
             "testCaseResult": {
                 "testCaseStatus": "Failed",
@@ -20,7 +21,7 @@ def test_parse_test_case_result_alert():
     event = parse_om_alert_payload(payload)
     assert event["incident_id"].startswith("om-")
     assert event["test_case_id"] == "tc-uuid-1"
-    assert event["entity_fqn"] == "svc.db.customer_profiles"
+    assert event["entity_fqn"] == "svc.db.schema.customer_profiles"
     assert event["severity"] in {"high", "medium", "low", "unknown"}
     assert event["raw_ref"] == "tc-uuid-1"
     assert event["occurred_at"]
@@ -74,3 +75,59 @@ def test_severity_from_aborted_is_medium():
     }
     event = parse_om_alert_payload(payload)
     assert event["severity"] == "medium"
+
+
+def test_four_part_fqn_is_preserved_at_table_level():
+    payload = {
+        "entity": {
+            "id": "tc-4",
+            "fullyQualifiedName": "demo_mysql.customer_analytics.raw.customer_profiles",
+            "testCaseResult": {"testCaseStatus": "Failed", "result": "x"},
+        }
+    }
+    event = parse_om_alert_payload(payload)
+    # Previously this was trimmed to 3 parts (schema-level) — now we keep the table.
+    assert event["entity_fqn"] == "demo_mysql.customer_analytics.raw.customer_profiles"
+
+
+def test_five_part_fqn_trims_to_table():
+    payload = {
+        "entity": {
+            "id": "tc-5",
+            "fullyQualifiedName": "demo_mysql.customer_analytics.raw.customer_profiles.customer_id",
+            "testCaseResult": {"testCaseStatus": "Failed", "result": "x"},
+        }
+    }
+    event = parse_om_alert_payload(payload)
+    # Column-level FQN → resolve to its parent table.
+    assert event["entity_fqn"] == "demo_mysql.customer_analytics.raw.customer_profiles"
+
+
+def test_failed_test_carries_result_message():
+    payload = {
+        "entity": {
+            "id": "tc-6",
+            "fullyQualifiedName": "demo_mysql.customer_analytics.raw.customer_profiles",
+            "testCaseResult": {
+                "testCaseStatus": "Failed",
+                "result": "null ratio on customer_id exceeded 15% threshold",
+            },
+            "testDefinition": {"name": "columnValueNullRatioExceeded"},
+        }
+    }
+    event = parse_om_alert_payload(payload)
+    assert event["failed_test"]["message"] == "null ratio on customer_id exceeded 15% threshold"
+    assert event["failed_test"]["testType"] == "columnValueNullRatioExceeded"
+
+
+def test_canonical_envelope_preserves_failed_test_passthrough():
+    event = parse_om_alert_payload({
+        "incident_id": "canon-1",
+        "entity_fqn": "svc.db.schema.t",
+        "test_case_id": "tc",
+        "severity": "high",
+        "occurred_at": "2026-04-18T00:00:00Z",
+        "raw_ref": "x",
+        "failed_test": {"message": "direct", "testType": "custom"},
+    })
+    assert event["failed_test"] == {"message": "direct", "testType": "custom"}

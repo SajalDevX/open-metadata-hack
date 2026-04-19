@@ -33,9 +33,13 @@ def _normalize_payload(envelope, payload, max_depth=2):
         merged["classifications"] = merged.get("classifications") or classifications_map.get(merged.get("fqn"), [])
         impacted.append(merged)
 
+    # Prefer the envelope's failed_test when OM didn't return one — lets the webhook
+    # payload carry the failure signal straight through to RCA inference.
+    failed_test = payload.get("failed_test") or envelope.get("failed_test") or {}
+
     return {
         "incident_id": envelope["incident_id"],
-        "failed_test": payload.get("failed_test", {}),
+        "failed_test": failed_test,
         "impacted_assets": impacted,
         "owners": owners,
         "classifications": classifications_map,

@@ -6,6 +6,28 @@ from incident_copilot.context_resolver import resolve_context
 from incident_copilot.openmetadata_client import OpenMetadataClientError
 
 
+def test_envelope_failed_test_used_when_payload_empty():
+    env = {
+        "incident_id": "inc-e",
+        "entity_fqn": "svc.db.s.t",
+        "failed_test": {"message": "from webhook envelope", "testType": "columnValueNullRatioExceeded"},
+    }
+    fake_client = {"failed_test": {}, "lineage": [], "owners": {"asset_owner": "o"}, "classifications": {}}
+    out = resolve_context(env, fake_client, max_depth=2)
+    assert out["failed_test"]["message"] == "from webhook envelope"
+
+
+def test_payload_failed_test_wins_over_envelope():
+    env = {
+        "incident_id": "inc-e",
+        "entity_fqn": "svc.db.s.t",
+        "failed_test": {"message": "from envelope"},
+    }
+    fake_client = {"failed_test": {"message": "from om"}, "lineage": [], "owners": {"asset_owner": "o"}, "classifications": {}}
+    out = resolve_context(env, fake_client, max_depth=2)
+    assert out["failed_test"]["message"] == "from om"
+
+
 def test_resolver_returns_required_context_sections():
     env = {"incident_id": "inc-1", "entity_fqn": "svc.db.customer_profiles"}
     fake_client = {
