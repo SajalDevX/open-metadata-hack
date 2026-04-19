@@ -5,14 +5,16 @@ Updated as features land or issues are discovered.
 
 ## Deferred (out of scope for current phase)
 
-- **Slack interactive buttons** (ack/approve/deny) — Phase C. Currently one-way delivery.
-- **Docker / docker-compose packaging** — Phase C.
 - **Multi-incident correlation** — the base design explicitly excluded this. Would need a
   separate "incident bundle" concept and dedup beyond `incident_id`.
-- **Web UI for browsing incident history** — only `/incidents/{id}/view` HTML exists;
-  no index/dashboard page yet.
-- **OpenMetadata alert-configuration guide** — need step-by-step doc for pointing OM
-  Settings → Alerts at the copilot webhook.
+- **Authenticated webhook endpoint** — no HMAC / bearer-token check on
+  `/webhooks/incidents`. Deliberate: OM's outbound webhook auth story varies
+  per version. Deploy behind a private network or reverse proxy with
+  basic auth for production.
+- **Non-root container user** — Dockerfile runs as default python user. Fine for
+  hackathon; production image should build a dedicated UID.
+- **Retry-queue dead-letter storage** — after `max_attempts` the entry is
+  filtered out but left in the DB. A real DLQ viewer endpoint would help ops.
 
 ## Known limitations
 
@@ -37,18 +39,26 @@ Updated as features land or issues are discovered.
 
 ## Verified working (as of latest commit)
 
-- 166 tests pass
-- Live FastAPI service: `/webhooks/incidents`, `/incidents`, `/health`, `/metrics`,
-  `/admin/retry-queue`, `/admin/retry-now`
-- SQLite persistence with upsert-by-id (`store.py`)
-- SQLite-backed retry queue with idempotent enqueue + exponential-style backoff
-  (`delivery_queue.py`)
-- Background retry loop (asyncio task via FastAPI lifespan) — auto-retries failed
-  Slack deliveries every 30s
-- OpenMetadata event poller with dedup (opt-in via `COPILOT_ENABLE_POLLER=true`)
+- **179 tests pass**
+- Live FastAPI service:
+  - `GET  /` — HTML dashboard with recent incidents + integration-status pills
+  - `POST /webhooks/incidents` — ingest OM alert payloads
+  - `GET  /incidents` / `/incidents/{id}` / `/incidents/{id}/view`
+  - `GET  /health` / `/metrics`
+  - `GET  /admin/retry-queue` / `POST /admin/retry-now`
+  - `POST /slack/actions` — signed Slack interactivity (ack/approve/deny)
+  - `GET  /api` — endpoint listing JSON
+- SQLite persistence (`store.py`) + retry queue (`delivery_queue.py`)
+- Background retry loop + OM event poller, managed by FastAPI lifespan
 - Startup config validator — warns on missing optional integrations, errors on
   partial OpenMetadata config or invalid port
+- Slack Block Kit message with ack/approve/deny buttons; `/slack/actions`
+  verifies HMAC signatures and rejects replays > 5 min old
+- Dockerfile + docker-compose.yml — `docker compose up` spins up the service
+- `.env.example` documents every supported env var
+- `docs/OPENMETADATA_ALERT_SETUP.md` step-by-step for pointing OM at the webhook
 - One-click `verify.sh` proves determinism (md5 parity across runs)
-- Real Slack webhook delivery (urllib POST)
+- Real Slack webhook delivery (urllib POST) with Block Kit payload
 - Real OpenMetadata HTTP + MCP transport clients
 - Real OpenRouter Claude calls with template fallback
+- Verified in-container end-to-end: health, webhook ingest, dashboard all served

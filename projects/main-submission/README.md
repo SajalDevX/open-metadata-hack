@@ -58,14 +58,25 @@ All AI calls (blocks 8, 10) go through **OpenRouter** (`openai` SDK with `anthro
 
 ## Quick start
 
-### 1. Install
+### Option A — Docker (recommended)
 
 ```bash
 cd projects/main-submission
-python3 -m pip install --user pytest openai fastmcp
+cp .env.example .env        # edit to taste — every var is optional
+docker compose up --build
 ```
 
-### 2. One-click demo (no OpenMetadata server required)
+Dashboard: http://localhost:8080 · Webhook endpoint: http://localhost:8080/webhooks/incidents
+
+### Option B — Live service, direct Python
+
+```bash
+cd projects/main-submission
+python3 -m pip install --user pytest openai fastmcp fastapi uvicorn httpx
+python3 scripts/run_server.py
+```
+
+### Option C — One-shot demo (no server, no OpenMetadata)
 
 ```bash
 python3 scripts/run_demo.py \
@@ -194,6 +205,28 @@ projects/main-submission/
 ```
 
 ---
+
+## Live service endpoints
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/` | HTML dashboard — recent incidents + integration status |
+| POST | `/webhooks/incidents` | Receive OpenMetadata alert payloads |
+| GET | `/incidents` | List recent briefs (JSON) |
+| GET | `/incidents/{id}` | Full brief payload (JSON) |
+| GET | `/incidents/{id}/view` | Rendered HTML brief |
+| POST | `/slack/actions` | Slack interactivity (ack/approve/deny) — HMAC-verified |
+| GET | `/health` | Liveness + which integrations are configured |
+| GET | `/metrics` | `{incident_count, pending_retries}` |
+| GET | `/admin/retry-queue` | Inspect Slack retry queue |
+| POST | `/admin/retry-now` | Force immediate retry sweep |
+
+## Deployment docs
+
+- `docs/OPENMETADATA_ALERT_SETUP.md` — step-by-step for pointing OM at the webhook
+- `docs/KNOWN_GAPS.md` — deferred items + verified-working inventory
+- `docs/DEMO_SCRIPT.md` — 2-minute demo recording guide
+- `.env.example` — every supported env var documented
 
 ## Design docs
 
