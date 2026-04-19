@@ -37,9 +37,17 @@ Updated as features land or issues are discovered.
 
 ## Verified working (as of latest commit)
 
-- 140+ tests pass
-- Live FastAPI service: `/webhooks/incidents`, `/incidents`, `/health`, `/metrics`
-- SQLite persistence with upsert-by-id
+- 166 tests pass
+- Live FastAPI service: `/webhooks/incidents`, `/incidents`, `/health`, `/metrics`,
+  `/admin/retry-queue`, `/admin/retry-now`
+- SQLite persistence with upsert-by-id (`store.py`)
+- SQLite-backed retry queue with idempotent enqueue + exponential-style backoff
+  (`delivery_queue.py`)
+- Background retry loop (asyncio task via FastAPI lifespan) — auto-retries failed
+  Slack deliveries every 30s
+- OpenMetadata event poller with dedup (opt-in via `COPILOT_ENABLE_POLLER=true`)
+- Startup config validator — warns on missing optional integrations, errors on
+  partial OpenMetadata config or invalid port
 - One-click `verify.sh` proves determinism (md5 parity across runs)
 - Real Slack webhook delivery (urllib POST)
 - Real OpenMetadata HTTP + MCP transport clients
