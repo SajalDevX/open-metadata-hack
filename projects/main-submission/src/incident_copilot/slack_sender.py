@@ -29,8 +29,10 @@ def _render_slack_message(payload: dict) -> dict | None:
         return None
 
     incident_id = payload.get("incident_id") or brief.get("incident_id") or "unknown"
+    policy = brief.get("policy_state", "allowed")
 
     lines = [f"Incident {incident_id}"]
+    section_blocks = []
     if isinstance(brief, dict):
         for label, key in (
             ("Failed", "what_failed"),
@@ -43,8 +45,37 @@ def _render_slack_message(payload: dict) -> dict | None:
                 text = block.get("text")
                 if text:
                     lines.append(f"{label}: {text}")
+                    section_blocks.append({
+                        "type": "section",
+                        "text": {"type": "mrkdwn", "text": f"*{label}:*\n{text}"},
+                    })
 
-    return {"text": "\n".join(lines), "unfurl_links": False}
+    # Header with incident id + policy badge
+    policy_emoji = ":rotating_light:" if policy == "approval_required" else ":white_check_mark:"
+    header_block = {
+        "type": "header",
+        "text": {"type": "plain_text", "text": f"{policy_emoji} Incident {incident_id} · {policy}"},
+    }
+
+    # Interactive action buttons — action_id values must match slack_actions.py
+    buttons = [
+        {"type": "button", "text": {"type": "plain_text", "text": "Acknowledge"},
+         "action_id": "ack", "value": incident_id},
+    ]
+    if policy == "approval_required":
+        buttons.extend([
+            {"type": "button", "text": {"type": "plain_text", "text": "Approve"},
+             "style": "primary", "action_id": "approve", "value": incident_id},
+            {"type": "button", "text": {"type": "plain_text", "text": "Deny"},
+             "style": "danger", "action_id": "deny", "value": incident_id},
+        ])
+    actions_block = {"type": "actions", "elements": buttons}
+
+    return {
+        "text": "\n".join(lines),   # fallback for notifications / old clients
+        "unfurl_links": False,
+        "blocks": [header_block, *section_blocks, actions_block],
+    }
 
 
 def send_slack_payload(

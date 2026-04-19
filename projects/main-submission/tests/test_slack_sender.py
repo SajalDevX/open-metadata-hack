@@ -72,6 +72,52 @@ def test_send_slack_payload_posts_json_to_webhook(monkeypatch):
     assert "Database checksum mismatch" in body["text"]
     assert body["unfurl_links"] is False
 
+    # Block Kit payload includes header + interactive actions
+    assert "blocks" in body
+    action_ids = {
+        el["action_id"]
+        for block in body["blocks"]
+        if block.get("type") == "actions"
+        for el in block.get("elements", [])
+    }
+    assert "ack" in action_ids
+
+
+def test_send_slack_payload_includes_approve_deny_for_pii(monkeypatch):
+    import io
+    from incident_copilot.slack_sender import send_slack_payload
+
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b"ok"
+        status = 200
+
+    def fake_urlopen(request, timeout=None):
+        captured["data"] = json.loads(request.data.decode("utf-8"))
+        return FakeResponse()
+
+    monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.slack.test/x")
+    payload = {
+        "channel": "slack",
+        "brief": {
+            "incident_id": "inc-pii",
+            "policy_state": "approval_required",
+            "what_failed": {"text": "null ratio"},
+        },
+    }
+    assert send_slack_payload(payload, opener=fake_urlopen) is True
+
+    action_ids = {
+        el["action_id"]
+        for block in captured["data"]["blocks"]
+        if block.get("type") == "actions"
+        for el in block.get("elements", [])
+    }
+    assert action_ids == {"ack", "approve", "deny"}
+
 
 def test_send_slack_payload_returns_false_on_transport_error(monkeypatch):
     def fake_urlopen(request, timeout=None):
