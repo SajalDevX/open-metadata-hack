@@ -12,6 +12,7 @@ Endpoints:
 """
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
@@ -24,6 +25,12 @@ from incident_copilot.dashboard_renderer import render_dashboard_html
 from incident_copilot.delivery_queue import DeliveryQueue
 from incident_copilot.om_poller import poll_once
 from incident_copilot.orchestrator import run_pipeline
+from incident_copilot.slack_actions import (
+    SlackActionError,
+    apply_action,
+    parse_action_payload,
+    verify_slack_signature,
+)
 from incident_copilot.slack_sender import build_slack_sender
 from incident_copilot.store import IncidentStore
 from incident_copilot.webhook_parser import parse_om_alert_payload
@@ -171,6 +178,30 @@ def create_app(config: AppConfig | None = None, retry_interval_seconds: float = 
         if row is None:
             raise HTTPException(status_code=404, detail=f"incident {incident_id} not found")
         return HTMLResponse(render_brief_html(row["brief"]))
+
+    @app.post("/slack/actions")
+    async def slack_actions(request: Request):
+        secret = os.environ.get("SLACK_SIGNING_SECRET")
+        if not secret:
+            raise HTTPException(status_code=503, detail="SLACK_SIGNING_SECRET not configured")
+
+        raw = await request.body()
+        ts = request.headers.get("x-slack-request-timestamp", "")
+        sig = request.headers.get("x-slack-signature", "")
+        if not verify_slack_signature(raw, ts, sig, secret):
+            raise HTTPException(status_code=401, detail="invalid Slack signature")
+
+        try:
+            parsed = parse_action_payload(raw)
+        except SlackActionError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        try:
+            result = apply_action(store, parsed["incident_id"], parsed["action"], parsed["user_name"])
+        except SlackActionError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+        return result
 
     @app.get("/admin/retry-queue")
     def retry_queue_snapshot():
