@@ -45,3 +45,17 @@ def test_fqn_and_classifications_preserved():
     result = score_asset(asset)
     assert result.fqn == "svc.db.orders"
     assert result.classifications == ["Finance.Internal"]
+
+
+def test_distance_zero_is_clamped():
+    asset = {"fqn": "a", "business_facing": False, "distance": 0, "downstream_count": 0, "classifications": []}
+    result = score_asset(asset)
+    assert result.distance == 1
+    assert "distance=1" in result.score_reason
+
+
+def test_missing_distance_defaults_to_one():
+    asset = {"fqn": "a", "business_facing": False, "downstream_count": 0, "classifications": []}
+    result = score_asset(asset)
+    assert result.distance == 1
+    assert "distance=1" in result.score_reason
