@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from incident_copilot.mcp_transport_client import MCPTransportClientError
 from incident_copilot.context_resolver import resolve_context
+from incident_copilot.openmetadata_client import OpenMetadataClientError
 
 
 def test_resolver_returns_required_context_sections():
@@ -126,4 +127,27 @@ def test_http_failure_falls_back_to_fixture_payload():
         with patch("incident_copilot.context_resolver._resolve_via_http", side_effect=Exception("http down")):
             out = resolve_context(env, om_client_data=fixture_payload, max_depth=2)
     assert "OM_HTTP_FALLBACK_TO_FIXTURE" in out["fallback_reason_codes"]
+    assert out["failed_test"]["name"] == "fixture"
+
+
+def test_mcp_and_http_failures_record_both_fallback_codes_in_order():
+    env = {"incident_id": "inc-1", "entity_fqn": "svc.db.customer_profiles", "test_case_id": "tc-1"}
+    fixture_payload = {
+        "failed_test": {"name": "fixture", "message": "fixture fallback", "testType": "x"},
+        "lineage": [],
+        "owners": {},
+        "classifications": {},
+    }
+    with patch.dict(os.environ, {"USE_OM_MCP": "true"}, clear=False):
+        with patch("incident_copilot.context_resolver._resolve_via_mcp", side_effect=RuntimeError("mcp down")):
+            with patch(
+                "incident_copilot.context_resolver._resolve_via_http",
+                side_effect=OpenMetadataClientError("http down"),
+            ):
+                out = resolve_context(env, om_client_data=fixture_payload, max_depth=2)
+
+    codes = out["fallback_reason_codes"]
+    assert "OM_MCP_FALLBACK_TO_HTTP" in codes
+    assert "OM_HTTP_FALLBACK_TO_FIXTURE" in codes
+    assert codes.index("OM_MCP_FALLBACK_TO_HTTP") < codes.index("OM_HTTP_FALLBACK_TO_FIXTURE")
     assert out["failed_test"]["name"] == "fixture"

@@ -266,21 +266,54 @@ class OpenMetadataClient:
 
         return impacted_assets, classifications_map
 
+    def _fqn_service_hints(self) -> list[str]:
+        raw = (
+            os.environ.get("OPENMETADATA_FQN_SERVICE_HINTS")
+            or os.environ.get("OPENMETADATA_SERVICE_NAME")
+            or ""
+        )
+        return [part.strip() for part in raw.split(",") if part.strip()]
+
+    def _candidate_entity_fqns(self, entity_fqn: str) -> list[str]:
+        candidates = [entity_fqn]
+        # Fixture events may provide 3-part FQNs; OpenMetadata usually expects service.database.schema.table.
+        if entity_fqn and entity_fqn.count(".") == 2:
+            for hint in self._fqn_service_hints():
+                mapped = f"{hint}.{entity_fqn}"
+                if mapped not in candidates:
+                    candidates.append(mapped)
+        return candidates
+
     def fetch_incident_context(self, envelope: dict[str, Any], max_depth: int = 2) -> dict[str, Any]:
-        entity_fqn = envelope.get("entity_fqn") or ""
+        original_entity_fqn = envelope.get("entity_fqn") or ""
         test_case_hint = envelope.get("test_case_id") or ""
-        if not entity_fqn:
+        if not original_entity_fqn:
             raise OpenMetadataClientError("entity_fqn is required for OpenMetadata context resolution")
 
-        test_case = self._pick_test_case(test_case_hint, entity_fqn)
+        selected_entity_fqn = original_entity_fqn
+        lineage = None
+        last_error = None
+        for candidate in self._candidate_entity_fqns(original_entity_fqn):
+            try:
+                lineage = self._get_lineage(candidate, max_depth)
+                selected_entity_fqn = candidate
+                break
+            except OpenMetadataClientError as exc:
+                last_error = exc
+
+        if lineage is None:
+            if last_error is not None:
+                raise last_error
+            raise OpenMetadataClientError("Unable to resolve lineage from OpenMetadata")
+
+        test_case = self._pick_test_case(test_case_hint, selected_entity_fqn)
         latest_result = None
         if test_case and test_case.get("fullyQualifiedName"):
             latest_result = self._get_latest_test_result(test_case.get("fullyQualifiedName"))
 
-        lineage = self._get_lineage(entity_fqn, max_depth)
-        impacted_assets, classifications = self._build_lineage_assets(lineage, entity_fqn, max_depth)
+        impacted_assets, classifications = self._build_lineage_assets(lineage, selected_entity_fqn, max_depth)
 
-        root_table = self._get_table(entity_fqn) or {}
+        root_table = self._get_table(selected_entity_fqn) or {}
         owners = root_table.get("owners") or []
 
         owner_map = {

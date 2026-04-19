@@ -1,0 +1,8 @@
+{
+  "incident_id": "inc-replay-bootstrap-create",
+  "entity_fqn": "customer_analytics.raw.customer_profiles_bootstrap",
+  "test_case_id": "tc-null-ratio-customer_id",
+  "severity": "high",
+  "occurred_at": "2026-04-19T12:00:00Z",
+  "raw_ref": "evt-replay-bootstrap-create"
+}
