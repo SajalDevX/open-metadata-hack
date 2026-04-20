@@ -205,6 +205,78 @@ def suggest_tests_for_table_tool(entity_fqn: str) -> dict:
     }
 
 
+_TEST_NAME_TO_SAFE_NAME: dict[str, str] = {
+    "tableRowCountToBeBetween": "row_count_between",
+    "columnValuesToBeNotNull": "not_null",
+    "columnValuesToBeUnique": "unique",
+    "columnValuesToBeBetween": "values_between",
+    "columnValuesToMatchRegex": "regex_match",
+    "columnValueLengthsToBeBetween": "length_between",
+    "columnValueNullCount": "null_count",
+}
+
+
+def create_tests_in_om_tool(entity_fqn: str, suggestions: list[dict]) -> dict:
+    result: dict = {
+        "entity_fqn": entity_fqn,
+        "om_reachable": False,
+        "created": [],
+        "skipped": [],
+        "errors": [],
+    }
+    try:
+        from incident_copilot.openmetadata_client import OpenMetadataClient
+        client = OpenMetadataClient.from_env()
+
+        test_defs = client.fetch_test_definitions()
+        result["om_reachable"] = True
+
+        suite = client.fetch_basic_test_suite(entity_fqn)
+        if not suite:
+            result["errors"].append("No basic test suite found for entity; create one in OM first.")
+            return result
+
+        suite_id = suite.get("id") or ""
+
+        for suggestion in suggestions:
+            test_name = suggestion.get("test_name") or ""
+            column = suggestion.get("column")
+            params = suggestion.get("params") or {}
+
+            def_id = test_defs.get(test_name)
+            if not def_id:
+                result["skipped"].append({"test_name": test_name, "reason": "unknown test definition"})
+                continue
+
+            safe_suffix = _TEST_NAME_TO_SAFE_NAME.get(test_name, test_name.lower()[:20])
+            if column:
+                case_name = f"{column}_{safe_suffix}"
+            else:
+                case_name = f"table_{safe_suffix}"
+
+            try:
+                created = client.create_test_case(
+                    entity_fqn=entity_fqn,
+                    test_name=case_name,
+                    test_def_id=def_id,
+                    test_suite_id=suite_id,
+                    column=column,
+                    params=params,
+                )
+                result["created"].append({
+                    "test_name": case_name,
+                    "om_id": created.get("id"),
+                    "fqn": created.get("fullyQualifiedName"),
+                })
+            except Exception as exc:
+                result["errors"].append({"test_name": case_name, "error": str(exc)})
+
+    except Exception as exc:
+        result["errors"].append(str(exc))
+
+    return result
+
+
 @mcp.tool
 def triage_incident(incident_id: str, entity_fqn: str) -> dict:
     """Run full incident triage pipeline and return the canonical triage envelope."""
@@ -265,6 +337,12 @@ def list_recent_failures(limit: int = 10) -> list[dict]:
         }
         for r in rows
     ]
+
+
+@mcp.tool
+def create_tests_in_om(entity_fqn: str, suggestions: list[dict]) -> dict:
+    """Write suggested test cases back to OpenMetadata via its REST API."""
+    return create_tests_in_om_tool(entity_fqn, suggestions)
 
 
 @mcp.tool

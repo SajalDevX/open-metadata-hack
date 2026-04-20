@@ -297,6 +297,74 @@ class OpenMetadataClient:
             query={"fields": "columns,tags,profile"},
         )
 
+    def _json_post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
+        url = f"{self.settings.base_url}{path}"
+        data = json.dumps(body).encode("utf-8")
+        headers = {"Accept": "application/json", "Content-Type": "application/json"}
+        if self.settings.token:
+            headers["Authorization"] = f"Bearer {self.settings.token}"
+        req = request.Request(url, data=data, headers=headers, method="POST")
+        try:
+            with request.urlopen(req, timeout=self.settings.timeout_seconds) as response:
+                payload = response.read().decode("utf-8")
+                return json.loads(payload) if payload else {}
+        except error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise OpenMetadataClientError(f"OpenMetadata HTTP {exc.code} for {url}: {detail}") from exc
+        except error.URLError as exc:
+            raise OpenMetadataClientError(f"OpenMetadata connection error for {url}: {exc.reason}") from exc
+
+    def fetch_test_definitions(self) -> dict[str, str]:
+        """Return mapping of test definition name -> id."""
+        try:
+            payload = self._json_get("/v1/dataQuality/testDefinitions", query={"limit": 100})
+        except OpenMetadataClientError:
+            return {}
+        defs = payload.get("data") or []
+        return {d["name"]: d["id"] for d in defs if d.get("name") and d.get("id")}
+
+    def fetch_basic_test_suite(self, entity_fqn: str) -> dict[str, Any] | None:
+        """Find the entity's auto-created basic test suite."""
+        try:
+            payload = self._json_get(
+                "/v1/dataQuality/testSuites",
+                query={"testSuiteType": "basic", "entityFQN": entity_fqn, "limit": 1},
+            )
+        except OpenMetadataClientError:
+            return None
+        suites = payload.get("data") or []
+        return suites[0] if suites else None
+
+    def create_test_case(
+        self,
+        entity_fqn: str,
+        test_name: str,
+        test_def_id: str,
+        test_suite_id: str,
+        column: str | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """POST /v1/dataQuality/testCases to create a new test case."""
+        if column:
+            entity_link = f"<#E::table::{entity_fqn}::columns::{column}>"
+        else:
+            entity_link = f"<#E::table::{entity_fqn}>"
+
+        param_values = []
+        for k, v in (params or {}).items():
+            param_values.append({"name": k, "value": str(v)})
+
+        body: dict[str, Any] = {
+            "name": test_name,
+            "entityLink": entity_link,
+            "testDefinition": {"id": test_def_id, "type": "testDefinition"},
+            "testSuite": {"id": test_suite_id, "type": "testSuite"},
+        }
+        if param_values:
+            body["parameterValues"] = param_values
+
+        return self._json_post("/v1/dataQuality/testCases", body)
+
     def search_entities(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
         """Search OpenMetadata entities using the search API."""
         try:
