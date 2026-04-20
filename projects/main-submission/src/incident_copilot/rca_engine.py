@@ -1,5 +1,9 @@
+import os
+
 from incident_copilot.contracts import RCAResult
 from incident_copilot.openrouter_client import is_available, get_client
+
+_DEFAULT_MODEL = "anthropic/claude-haiku-4-5"
 
 SIGNAL_MAP: dict[str, list[str]] = {
     "null_ratio_exceeded": ["data_completeness", "upstream_null_propagation"],
@@ -62,6 +66,7 @@ def build_rca(failed_test: dict, entity_fqn: str, use_ai: bool = True) -> RCARes
 
 def _claude_narrative(signal: str, cause_tree: list[str], failed_test: dict, entity_fqn: str) -> str:
     client = get_client()
+    model = os.environ.get("OPENROUTER_MODEL", _DEFAULT_MODEL)
     prompt = (
         f"A data quality check failed on asset '{entity_fqn}'.\n"
         f"Test message: {failed_test.get('message', 'unknown')}\n"
@@ -69,7 +74,7 @@ def _claude_narrative(signal: str, cause_tree: list[str], failed_test: dict, ent
         f"Write 1-2 sentences explaining what failed and why, in plain English for a data engineer."
     )
     resp = client.chat.completions.create(
-        model="anthropic/claude-haiku-4-5",
+        model=model,
         max_tokens=128,
         timeout=3,
         messages=[{"role": "user", "content": prompt}],

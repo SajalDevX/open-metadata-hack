@@ -1,5 +1,9 @@
+import os
+
 from incident_copilot.contracts import PolicyDecision, RecommendationResult, ScoredAsset
 from incident_copilot.openrouter_client import is_available, get_client
+
+_DEFAULT_MODEL = "anthropic/claude-haiku-4-5"
 
 POLICY_FALLBACKS: dict[str, list[str]] = {
     "approval_required": [
@@ -47,7 +51,7 @@ def _claude_recommend(
         f"Use bullet points starting with •. Be concise."
     )
     resp = client.chat.completions.create(
-        model="anthropic/claude-haiku-4-5",
+        model=os.environ.get("OPENROUTER_MODEL", _DEFAULT_MODEL),
         max_tokens=200,
         timeout=3,
         messages=[{"role": "user", "content": prompt}],
