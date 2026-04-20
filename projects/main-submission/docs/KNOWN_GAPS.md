@@ -76,20 +76,17 @@ a reader can see exactly what would complete each one.
   simulations showing how scores drift under traffic bursts, lineage depth
   changes, etc.
 
-### [#26660](https://github.com/open-metadata/OpenMetadata/issues/26660) — AI-Powered DQ Recommendations (~30% covered — biggest gap)
+### [#26660](https://github.com/open-metadata/OpenMetadata/issues/26660) — AI-Powered DQ Recommendations (~70% covered)
 
-- **Proactive test suggestion** is the core ask: analyze a table's profile
-  and suggest which DQ tests to *add*. Our `ai_recommender.py` is reactive —
-  it suggests what to do *about* a failed test. Different axis entirely.
-- **Reading column types, names, descriptions, sample data** — we don't query
-  the OpenMetadata profile endpoint at all.
-- **Suggesting test definitions from the template library** — no integration
-  with OpenMetadata's built-in test templates.
-- **Creating test cases with default parameters** — we don't write to OM.
-- *Fix path:* add a new `suggest_tests_for_table(entity_fqn)` MCP tool that
-  pulls the table's profile + column metadata from OM, prompts Claude for a
-  list of relevant test definitions with parameters, and returns a JSON list.
-  Estimated effort: < 1 hour.
+- **Proactive test suggestion** — `suggest_tests_for_table(entity_fqn)` MCP tool
+  added. Fetches table columns from OM, runs rule-based suggestions (null checks,
+  uniqueness, regex for emails, between for numeric metrics) and Claude-powered
+  suggestions when `OPENROUTER_API_KEY` is set. Returns a JSON list with
+  `test_name`, `column`, `params`, and `rationale` for each suggestion.
+- **Column types, names** — now read via `GET /v1/tables/name/{fqn}?fields=columns,tags,profile`.
+- **Remaining gaps:**
+  - **Creating test cases in OM** — tool suggests but doesn't write back to OM.
+  - **Sample data profiling** — uses column schema only, not row-level profile data.
 
 ### [#26645](https://github.com/open-metadata/OpenMetadata/issues/26645) — Multi-MCP Agent Orchestrator (~50% covered)
 
@@ -109,16 +106,16 @@ a reader can see exactly what would complete each one.
   - Domain & Data Product management
   - Import/Export tools
 
-### [#26651](https://github.com/open-metadata/OpenMetadata/issues/26651) — Slack App for OpenMetadata (~40% covered)
+### [#26651](https://github.com/open-metadata/OpenMetadata/issues/26651) — Slack App for OpenMetadata (~65% covered)
 
-- **`/metadata search` slash command** — no Slack slash command registered.
-  Would need to register one in the Slack app config and route it to a new
-  `POST /slack/commands` endpoint that queries OpenMetadata's search API.
-- **Daily digest** — no scheduled job that posts a daily summary of metadata
-  changes, quality status, or pending governance to a channel.
-- **"Hey @metadata-bot, who owns the payments table?"** — no event-listener
-  for mentions + natural language Q&A. Would need Slack Events API subscription
-  and a Claude-backed Q&A flow.
+- **`/metadata search` slash command** — `POST /slack/commands` endpoint added.
+  Parses Slack slash command body, queries OM's search API, returns ephemeral
+  Slack blocks with FQN, description, and owner. Verifies HMAC if
+  `SLACK_SIGNING_SECRET` is set. Register the endpoint as your Slack app's
+  Slash Commands URL in the Slack app config.
+- **Remaining gaps:**
+  - **Daily digest** — no scheduled job posting a daily summary.
+  - **"Hey @metadata-bot"** — no event-listener for @mentions + NL Q&A.
 
 ## Problem-statement coverage honesty score
 
@@ -126,20 +123,20 @@ a reader can see exactly what would complete each one.
 |---|---|---|
 | #26659 | Human-readable RCA | ~70% |
 | #26658 | DQ Impact scoring | ~85% |
-| #26660 | AI-Powered DQ Recommendations | ~30% |
+| #26660 | AI-Powered DQ Recommendations | ~70% |
 | #26645 | Multi-MCP Agent Orchestrator | ~50% |
 | #26609 | New MCP Alert/Notification Tools | 100% of this slice, 0% of other slices |
-| #26651 | Slack App for OpenMetadata | ~40% |
+| #26651 | Slack App for OpenMetadata | ~65% |
 
-Net: **6 of 22** hackathon problem statements touched, **3 substantially** covered
-(#26659, #26658, #26609), **3 partially** covered (#26660, #26645, #26651),
+Net: **6 of 22** hackathon problem statements touched, **5 substantially** covered
+(#26659, #26658, #26609, #26660, #26651), **1 partially** covered (#26645),
 **0 fully** covered end-to-end. This is deliberate — we prioritised depth and
 integration coherence in one coherent product over breadth across unrelated
 half-demos.
 
 ## Verified working (as of latest commit)
 
-- **190 tests pass**
+- **206 tests pass**
 - Live FastAPI service:
   - `GET  /` — HTML dashboard with recent incidents + integration-status pills
   - `POST /webhooks/incidents` — ingest OM alert payloads
@@ -147,6 +144,7 @@ half-demos.
   - `GET  /health` / `/metrics`
   - `GET  /admin/retry-queue` / `POST /admin/retry-now`
   - `POST /slack/actions` — signed Slack interactivity (ack/approve/deny)
+  - `POST /slack/commands` — Slack slash command `/metadata search <query>`
   - `GET  /api` — endpoint listing JSON
 - SQLite persistence (`store.py`) + retry queue (`delivery_queue.py`)
 - Background retry loop + OM event poller, managed by FastAPI lifespan
