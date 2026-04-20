@@ -225,6 +225,17 @@ def create_app(config: AppConfig | None = None, retry_interval_seconds: float = 
             return JSONResponse({"retried": 0, "error": "SLACK_WEBHOOK_URL not configured"}, status_code=400)
         return retry_pending_deliveries(store=store, queue=queue, slack_sender=sender)
 
+    @app.get("/admin/dead-letter")
+    def dead_letter_queue():
+        return {"dead_letters": queue.dead_letters(limit=100)}
+
+    @app.delete("/admin/dead-letter/{incident_id}")
+    def discard_dead_letter(incident_id: str):
+        removed = queue.discard_dead_letter(incident_id)
+        if not removed:
+            raise HTTPException(status_code=404, detail=f"{incident_id} not found in dead-letter queue")
+        return {"discarded": incident_id}
+
     @app.get("/", response_class=HTMLResponse)
     def dashboard():
         rows = store.list_recent(limit=50)

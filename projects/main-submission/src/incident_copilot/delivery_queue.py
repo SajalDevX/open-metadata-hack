@@ -75,3 +75,23 @@ class DeliveryQueue:
             """,
             (last_error, now + backoff_seconds, now, incident_id),
         )
+
+    def dead_letters(self, limit: int = 100, max_attempts: int = 5) -> list[dict]:
+        """Return entries that have exhausted max_attempts and will never be retried."""
+        rows = self._connect().execute(
+            """
+            SELECT * FROM delivery_queue
+            WHERE attempts >= ?
+            ORDER BY updated_at DESC
+            LIMIT ?
+            """,
+            (max_attempts, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def discard_dead_letter(self, incident_id: str) -> bool:
+        """Remove a dead-letter entry manually. Returns True if a row was deleted."""
+        cursor = self._connect().execute(
+            "DELETE FROM delivery_queue WHERE incident_id = ?", (incident_id,)
+        )
+        return cursor.rowcount > 0
