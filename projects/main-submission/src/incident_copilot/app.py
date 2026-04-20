@@ -124,6 +124,14 @@ def create_app(config: AppConfig | None = None, retry_interval_seconds: float = 
 
     @app.post("/webhooks/incidents")
     async def ingest_incident(request: Request):
+        # Optional bearer-token auth — set WEBHOOK_SECRET to enable.
+        webhook_secret = os.environ.get("WEBHOOK_SECRET")
+        if webhook_secret:
+            auth = request.headers.get("Authorization", "")
+            token = auth.removeprefix("Bearer ").strip()
+            if token != webhook_secret:
+                raise HTTPException(status_code=401, detail="invalid webhook secret")
+
         try:
             payload = await request.json()
         except Exception:
