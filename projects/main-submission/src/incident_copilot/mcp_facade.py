@@ -244,5 +244,55 @@ def suggest_tests_for_table(entity_fqn: str) -> dict:
     return suggest_tests_for_table_tool(entity_fqn)
 
 
+@mcp.tool
+def list_recent_failures(limit: int = 10) -> list[dict]:
+    """List the most recent data quality incidents from the copilot's store, newest first."""
+    from incident_copilot.config import load_config
+    from incident_copilot.store import IncidentStore
+    cfg = load_config()
+    store = IncidentStore(cfg.db_path)
+    rows = store.list_recent(limit=limit)
+    return [
+        {
+            "incident_id": r["incident_id"],
+            "policy_state": r["policy_state"],
+            "delivery_status": r["delivery_status"],
+            "created_at": r["created_at"],
+            "what_failed": r["brief"].get("what_failed", {}).get("text", ""),
+            "top_asset": (
+                (r["brief"].get("what_is_impacted") or {}).get("text", "")[:120]
+            ),
+        }
+        for r in rows
+    ]
+
+
+@mcp.tool
+def get_table_info(entity_fqn: str) -> dict:
+    """Fetch table metadata from OpenMetadata: owners, tags, columns, and lineage summary."""
+    result: dict = {"entity_fqn": entity_fqn, "om_reachable": False}
+    try:
+        from incident_copilot.openmetadata_client import OpenMetadataClient
+        client = OpenMetadataClient.from_env()
+        table_data = client.fetch_table_metadata(entity_fqn)
+        result["om_reachable"] = True
+        result["name"] = table_data.get("name")
+        result["description"] = table_data.get("description")
+        result["owners"] = [
+            {"name": o.get("name"), "type": o.get("type")}
+            for o in (table_data.get("owners") or [])
+        ]
+        result["tags"] = [t.get("tagFQN") for t in (table_data.get("tags") or []) if t.get("tagFQN")]
+        columns = table_data.get("columns") or []
+        result["column_count"] = len(columns)
+        result["columns"] = [
+            {"name": c.get("name"), "dataType": c.get("dataType"), "description": c.get("description")}
+            for c in columns[:20]
+        ]
+    except Exception as exc:
+        result["error"] = str(exc)
+    return result
+
+
 if __name__ == "__main__":
     mcp.run()
