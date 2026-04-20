@@ -9,11 +9,14 @@ Endpoints:
   GET  /metrics                 — lightweight counters for ops.
   GET  /admin/retry-queue       — inspect pending Slack retries.
   POST /admin/retry-now         — force an immediate retry sweep.
+  POST /slack/actions           — Slack interactivity handler (ack/approve/deny).
+  POST /slack/commands          — Slack slash command: /metadata search <query>.
 """
 import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
+from urllib.parse import parse_qs
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -214,6 +217,71 @@ def create_app(config: AppConfig | None = None, retry_interval_seconds: float = 
 
         return render_slack_response(parsed["action"], parsed["user_name"], parsed["incident_id"])
 
+    @app.post("/slack/commands")
+    async def slack_commands(request: Request):
+        raw = await request.body()
+        secret = os.environ.get("SLACK_SIGNING_SECRET")
+        if secret:
+            ts = request.headers.get("x-slack-request-timestamp", "")
+            sig = request.headers.get("x-slack-signature", "")
+            if not verify_slack_signature(raw, ts, sig, secret):
+                raise HTTPException(status_code=401, detail="invalid Slack signature")
+
+        params = parse_qs(raw.decode("utf-8", errors="replace"))
+        text = (params.get("text") or [""])[0].strip()
+        # Support "/metadata search <query>" — strip leading "search " if present
+        if text.lower().startswith("search "):
+            text = text[7:].strip()
+
+        if not text:
+            return JSONResponse({
+                "response_type": "ephemeral",
+                "text": "Usage: `/metadata search <query>` — search OpenMetadata tables and assets.",
+            })
+
+        if not cfg.has_openmetadata:
+            return JSONResponse({
+                "response_type": "ephemeral",
+                "text": (
+                    ":warning: OpenMetadata is not configured. "
+                    "Set `OPENMETADATA_BASE_URL` and `OPENMETADATA_JWT_TOKEN` to enable search."
+                ),
+            })
+
+        try:
+            from incident_copilot.openmetadata_client import OpenMetadataClient
+            om = OpenMetadataClient.from_env()
+            results = om.search_entities(text, limit=5)
+        except Exception as exc:
+            log.warning("slack command search error: %s", exc)
+            results = []
+
+        if not results:
+            return JSONResponse({
+                "response_type": "ephemeral",
+                "text": f":mag: No results found for *{text}* in OpenMetadata.",
+            })
+
+        blocks: list[dict] = [
+            {"type": "section", "text": {"type": "mrkdwn", "text": f":mag: *Search results for '{text}'*"}},
+            {"type": "divider"},
+        ]
+        for hit in results:
+            fqn = hit.get("fullyQualifiedName") or hit.get("name") or "unknown"
+            desc = (hit.get("description") or "").strip()
+            owners = ", ".join(
+                o.get("name") or o.get("displayName") or ""
+                for o in (hit.get("owners") or [])
+                if o.get("name") or o.get("displayName")
+            ) or "unowned"
+            label = f"*{fqn}*"
+            if desc:
+                label += f"\n{desc[:120]}"
+            label += f"\n:bust_in_silhouette: Owner: {owners}"
+            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": label}})
+
+        return JSONResponse({"response_type": "ephemeral", "blocks": blocks})
+
     @app.get("/admin/retry-queue")
     def retry_queue_snapshot():
         return {"pending": queue.pending(limit=1000)}
@@ -249,7 +317,9 @@ def create_app(config: AppConfig | None = None, retry_interval_seconds: float = 
                 "GET  /metrics",
                 "GET  /admin/retry-queue",
                 "POST /admin/retry-now",
-                "GET  /                    — HTML dashboard",
+                "POST /slack/actions         — Slack interactivity (ack/approve/deny)",
+                "POST /slack/commands        — Slack slash command (/metadata search <query>)",
+                "GET  /                      — HTML dashboard",
             ],
         })
 
