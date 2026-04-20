@@ -20,8 +20,12 @@ COPY src ./src
 COPY scripts ./scripts
 COPY runtime/fixtures ./runtime/fixtures
 
-# Create runtime dirs
-RUN mkdir -p /app/runtime/local_mirror
+# Create runtime dirs and dedicated non-root user
+RUN mkdir -p /app/runtime/local_mirror && \
+    useradd --no-create-home --shell /bin/false --uid 1001 copilot && \
+    chown -R copilot:copilot /app/runtime
+
+USER copilot
 
 ENV PYTHONPATH=/app/src \
     COPILOT_DB_PATH=/app/runtime/incidents.db \
