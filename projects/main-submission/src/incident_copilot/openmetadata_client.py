@@ -290,6 +290,25 @@ class OpenMetadataClient:
                     candidates.append(mapped)
         return candidates
 
+    def fetch_table_metadata(self, fqn: str) -> dict[str, Any]:
+        """Fetch table columns, tags, and profile for test suggestion."""
+        return self._json_get(
+            f"/v1/tables/name/{self._quote(fqn)}",
+            query={"fields": "columns,tags,profile"},
+        )
+
+    def search_entities(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
+        """Search OpenMetadata entities using the search API."""
+        try:
+            payload = self._json_get(
+                "/v1/search/query",
+                query={"q": query, "index": "table_search_index", "from": 0, "size": limit},
+            )
+        except OpenMetadataClientError:
+            return []
+        hits = (payload.get("hits") or {}).get("hits") or []
+        return [hit.get("_source") or {} for hit in hits]
+
     def fetch_recent_test_case_results(
         self, since_ms: int = 0, limit: int = 50
     ) -> list[dict[str, Any]]:
