@@ -398,7 +398,7 @@ Clicking **Approve** in Slack:
 ### 5.3 Test coverage as of current HEAD
 
 ```
-190 tests pass — pytest tests/ -q
+199 tests pass — pytest tests/ -q
 
 covering:
   adapter, ai_recommender, app (+ retry), background_retry, brief,
@@ -416,7 +416,7 @@ covering:
 
 Documented in `docs/KNOWN_GAPS.md`. Summary:
 
-- Webhook endpoint is unauthenticated — deploy behind VPN / reverse proxy
+- Webhook endpoint requires signed requests via `COPILOT_WEBHOOK_SECRET`
 - Retry-queue dead letters stay in the DB after max attempts (no viewer UI)
 - Container runs as default Python user (no custom non-root hardening)
 - Multi-incident correlation explicitly out of scope

@@ -133,7 +133,7 @@ Open `http://localhost:8088/`.
 ./scripts/verify.sh
 ```
 
-> "190 tests pass. The same input produces byte-identical output across runs — same md5 every time. No hidden state. That's critical when a judge wants to reproduce your demo."
+> "199 tests pass. The same input produces byte-identical output across runs — same md5 every time. No hidden state. That's critical when a judge wants to reproduce your demo."
 
 ### Scene 8 — Close (25 s)
 

@@ -1,10 +1,14 @@
 # Integration Setup Guide
 
-Where to get the credentials the copilot reads from `.env`. None of them are
-required — the service runs with any subset — but each unlocks more functionality.
+Where to get the credentials the copilot reads from `.env`.
+The service can run in demo mode with minimal env, but webhook ingest requires
+`COPILOT_WEBHOOK_SECRET`, and protected routes require `COPILOT_API_KEY` when set.
 
 | Variable | What it unlocks |
 |---|---|
+| `COPILOT_WEBHOOK_SECRET` | Required signature verification on `/webhooks/incidents` |
+| `COPILOT_API_KEY` | Protects read/admin routes via `X-API-Key` |
+| `COPILOT_APPROVER_USERS` | Slack user-ID allowlist for approval/deny actions |
 | `OPENROUTER_API_KEY` | AI-generated RCA narratives + recommendation bullets |
 | `OPENMETADATA_BASE_URL` + `OPENMETADATA_JWT_TOKEN` | Live context resolution against your real OpenMetadata catalog |
 | `SLACK_WEBHOOK_URL` | Slack delivery of the 4-block brief as a Block Kit message |
