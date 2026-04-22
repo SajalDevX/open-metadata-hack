@@ -92,3 +92,28 @@
   - `created_actions = ['created_table:demo_mysql.customer_analytics.raw.customer_profiles_bootstrap']`
 - Full suite after changes:
   - `.venv/bin/python -m pytest -q` -> `95 passed`
+
+## Security + Verification Hardening (2026-04-20)
+
+- [x] Add webhook request authentication for `/webhooks/incidents` (HMAC secret) and reject unauthenticated calls.
+- [x] Remove public canonical-envelope passthrough from webhook parser path and enforce strict event shape checks.
+- [x] Enforce approver authorization on Slack actions for `approval_required` incidents.
+- [x] Protect admin/read endpoints with API key gate and safe defaults for local demo.
+- [x] Fix repo-root README command/doc paths so copy-paste works from root.
+- [x] Add test dependency group and CI workflow for clean-environment verification.
+- [x] Add one black-box service e2e test (real app request path, real artifact assertions).
+- [x] Run focused and full verification (`pytest` + `scripts/verify.sh`) and record outcomes.
+
+## Security + Verification Hardening Review (2026-04-20)
+
+- Security hardening now enforces signed webhook ingestion (`X-Webhook-Timestamp` + `X-Webhook-Signature`) and rejects direct canonical incident envelopes on the public webhook route.
+- Slack approval/deny actions for `approval_required` incidents now require user authorization via `COPILOT_APPROVER_USERS`; unauthorized users receive 403.
+- Slack approver authorization now accepts stable Slack user IDs only (not mutable usernames).
+- Read/admin endpoints now support API-key gating via `COPILOT_API_KEY`; admin routes require it, and read routes enforce it when configured (`/`, `/api`, `/metrics`, `/incidents*`).
+- Added CI workflow at `.github/workflows/ci.yml` and test dependency extra (`.[test]`) in `pyproject.toml`.
+- Added black-box e2e test `tests/test_service_e2e.py` covering signed webhook -> persisted brief -> protected read flow.
+- Root README command/link paths now point to `projects/main-submission/...` surfaces for repo-root copy-paste correctness.
+- Integration docs updated for webhook-signing requirements, API-key behavior, and Slack approver allowlist semantics.
+- Verification:
+  - `.venv/bin/python -m pytest -q` -> `199 passed`
+  - `bash scripts/verify.sh` -> all checks passed (suite + demo + determinism + smoke + MCP)

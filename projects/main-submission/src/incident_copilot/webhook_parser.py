@@ -2,7 +2,6 @@
 
 Supports:
 - OpenMetadata `testCase` entityCreated/entityUpdated alert payloads (native format)
-- Direct incident envelopes (already in canonical shape — pass-through)
 - Partial/unknown payloads (fills with safe defaults, never raises)
 """
 import re
@@ -86,24 +85,9 @@ def _derive_severity(entity: dict) -> str:
     return "unknown"
 
 
-def _is_canonical_envelope(payload: dict) -> bool:
-    return all(k in payload for k in ("incident_id", "entity_fqn", "test_case_id"))
-
-
 def parse_om_alert_payload(payload: dict) -> dict:
     if not isinstance(payload, dict):
         payload = {}
-
-    if _is_canonical_envelope(payload):
-        return {
-            "incident_id": payload["incident_id"],
-            "entity_fqn": payload.get("entity_fqn", ""),
-            "test_case_id": payload.get("test_case_id", ""),
-            "severity": payload.get("severity", "unknown"),
-            "occurred_at": payload.get("occurred_at", datetime.now(tz=timezone.utc).isoformat()),
-            "raw_ref": payload.get("raw_ref", payload.get("incident_id", "")),
-            "failed_test": payload.get("failed_test") or {},
-        }
 
     entity = payload.get("entity") or {}
     test_case_id = entity.get("id") or ""

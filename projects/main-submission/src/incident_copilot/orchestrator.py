@@ -48,6 +48,7 @@ def run_pipeline(raw_event, om_data, slack_sender, mirror_writer=lambda _payload
             else ["policy_ref"],
         ),
         policy_state=policy.status,
+        required_approver_role=policy.required_approver_role,
     )
 
     delivery_result = deliver(brief, slack_sender, mirror_writer)

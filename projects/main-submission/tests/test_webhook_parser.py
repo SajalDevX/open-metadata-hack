@@ -27,7 +27,7 @@ def test_parse_test_case_result_alert():
     assert event["occurred_at"]
 
 
-def test_parse_direct_incident_payload():
+def test_direct_incident_payload_is_not_trusted_as_canonical():
     payload = {
         "incident_id": "inc-direct-1",
         "entity_fqn": "svc.db.orders",
@@ -37,8 +37,8 @@ def test_parse_direct_incident_payload():
         "raw_ref": "direct",
     }
     event = parse_om_alert_payload(payload)
-    assert event["incident_id"] == "inc-direct-1"
-    assert event["entity_fqn"] == "svc.db.orders"
+    assert event["incident_id"] != "inc-direct-1"
+    assert event["raw_ref"] == ""
 
 
 def test_parse_falls_back_to_unknown_when_missing():
@@ -136,7 +136,7 @@ def test_failed_test_carries_result_message():
     assert event["failed_test"]["testType"] == "columnValueNullRatioExceeded"
 
 
-def test_canonical_envelope_preserves_failed_test_passthrough():
+def test_direct_incident_payload_does_not_carry_failed_test_passthrough():
     event = parse_om_alert_payload({
         "incident_id": "canon-1",
         "entity_fqn": "svc.db.schema.t",
@@ -146,4 +146,4 @@ def test_canonical_envelope_preserves_failed_test_passthrough():
         "raw_ref": "x",
         "failed_test": {"message": "direct", "testType": "custom"},
     })
-    assert event["failed_test"] == {"message": "direct", "testType": "custom"}
+    assert event["failed_test"] == {}

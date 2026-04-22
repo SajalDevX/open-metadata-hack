@@ -12,7 +12,7 @@ All commands assume you're inside `projects/main-submission/`.
 python3 -m pytest tests/ -v
 ```
 
-Expected: **179 passed**.
+Expected: test suite passes with no failures.
 
 ---
 
@@ -36,37 +36,45 @@ python3 scripts/run_server.py
 In another terminal:
 
 ```bash
+export COPILOT_WEBHOOK_SECRET=om-local-secret
+export COPILOT_API_KEY=local-api-key
+
 # Health check
 curl http://localhost:8080/health | python3 -m json.tool
 
 # Send a sample OpenMetadata alert
+payload='{
+  "entity": {
+    "id": "tc-live-1",
+    "fullyQualifiedName": "customer_analytics.raw.customer_profiles",
+    "testCaseResult": {
+      "testCaseStatus": "Failed",
+      "result": "null ratio exceeded 15% threshold"
+    }
+  }
+}'
+ts=$(date +%s)
+sig="v1=$(printf "v1:%s:%s" "$ts" "$payload" | openssl dgst -sha256 -hmac "$COPILOT_WEBHOOK_SECRET" -hex | sed 's/^.* //')"
 curl -X POST http://localhost:8080/webhooks/incidents \
   -H "Content-Type: application/json" \
-  -d '{
-    "entity": {
-      "id": "tc-live-1",
-      "fullyQualifiedName": "customer_analytics.raw.customer_profiles",
-      "testCaseResult": {
-        "testCaseStatus": "Failed",
-        "result": "null ratio exceeded 15% threshold"
-      }
-    }
-  }'
+  -H "X-Webhook-Timestamp: $ts" \
+  -H "X-Webhook-Signature: $sig" \
+  -d "$payload"
 
 # List briefs
-curl http://localhost:8080/incidents | python3 -m json.tool
+curl -H "X-API-Key: $COPILOT_API_KEY" http://localhost:8080/incidents | python3 -m json.tool
 
-# See the HTML dashboard in a browser
-xdg-open http://localhost:8080/
+# Render dashboard HTML with API key
+curl -H "X-API-Key: $COPILOT_API_KEY" http://localhost:8080/ > /tmp/dashboard.html
 
 # See one brief rendered as HTML (use id from previous call)
-xdg-open http://localhost:8080/incidents/<incident_id>/view
+curl -H "X-API-Key: $COPILOT_API_KEY" http://localhost:8080/incidents/<incident_id>/view > /tmp/brief.html
 
 # Check metrics
-curl http://localhost:8080/metrics
+curl -H "X-API-Key: $COPILOT_API_KEY" http://localhost:8080/metrics
 
 # Inspect the retry queue
-curl http://localhost:8080/admin/retry-queue
+curl -H "X-API-Key: $COPILOT_API_KEY" http://localhost:8080/admin/retry-queue
 ```
 
 ---
@@ -167,15 +175,22 @@ Starts a FastMCP server. Connect Claude Desktop / `mcp-cli` to it and call:
 ./scripts/verify.sh         # shows test + deterministic demo
 
 # Terminal 2 (in another window)
+export COPILOT_WEBHOOK_SECRET=om-demo-secret
+export COPILOT_API_KEY=demo-api-key
 python3 scripts/run_server.py
 
 # Terminal 3
+payload='{"entity":{"id":"tc-demo","fullyQualifiedName":"a.b.c","testCaseResult":{"testCaseStatus":"Failed","result":"null ratio"}}}'
+ts=$(date +%s)
+sig="v1=$(printf "v1:%s:%s" "$ts" "$payload" | openssl dgst -sha256 -hmac "$COPILOT_WEBHOOK_SECRET" -hex | sed 's/^.* //')"
 curl -X POST http://localhost:8080/webhooks/incidents \
   -H "Content-Type: application/json" \
-  -d '{"entity":{"id":"tc-demo","fullyQualifiedName":"a.b.c","testCaseResult":{"testCaseStatus":"Failed","result":"null ratio"}}}'
+  -H "X-Webhook-Timestamp: $ts" \
+  -H "X-Webhook-Signature: $sig" \
+  -d "$payload"
 
-# Open the dashboard in a browser
-xdg-open http://localhost:8080/
+# Inspect protected reads
+curl -H "X-API-Key: $COPILOT_API_KEY" http://localhost:8080/incidents | python3 -m json.tool
 ```
 
 Proves: tests pass · deterministic output · live webhook ingestion · persistent

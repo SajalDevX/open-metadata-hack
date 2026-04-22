@@ -61,8 +61,8 @@ All AI calls (blocks 8, 10) go through **OpenRouter** (`openai` SDK with `anthro
 ### Option A — Docker (recommended)
 
 ```bash
-cd projects/main-submission
-cp .env.example .env        # edit to taste — every var is optional
+cp .env.example .env
+# For webhook ingest, set COPILOT_WEBHOOK_SECRET in .env
 docker compose up --build
 ```
 
@@ -71,8 +71,7 @@ Dashboard: http://localhost:8080 · Webhook endpoint: http://localhost:8080/webh
 ### Option B — Live service, direct Python
 
 ```bash
-cd projects/main-submission
-python3 -m pip install --user pytest openai fastmcp fastapi uvicorn httpx
+python3 -m pip install -e ".[test]"
 python3 scripts/run_server.py
 ```
 
@@ -102,11 +101,12 @@ Runs: full test suite → demo → determinism hash check → Python smoke test 
 
 ## Enabling live OpenMetadata
 
-Set env vars and swap the flag on the demo script:
+Set env vars and run either poller mode or a signed webhook relay:
 
 ```bash
 export OPENMETADATA_BASE_URL="http://localhost:8585/api"
 export OPENMETADATA_JWT_TOKEN="eyJ..."          # from Bots → Ingestion Bot
+export COPILOT_WEBHOOK_SECRET="om-shared-secret" # required for /webhooks/incidents
 
 # Direct HTTP (OpenMetadata REST API)
 python3 scripts/run_demo.py --replay runtime/fixtures/replay_event.json \
@@ -119,6 +119,7 @@ python3 scripts/run_demo.py --replay runtime/fixtures/replay_event.json \
 ```
 
 Fallback chain: `MCP → HTTP → fixture payload`. Every fallback gets a reason code in the brief.
+For OpenMetadata Alerts webhook integration, use a signing relay/proxy or enable poller mode (`COPILOT_ENABLE_POLLER=true`).
 
 ---
 
@@ -210,16 +211,16 @@ projects/main-submission/
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/` | HTML dashboard — recent incidents + integration status |
+| GET | `/` | HTML dashboard — recent incidents + integration status (API key required if `COPILOT_API_KEY` is set) |
 | POST | `/webhooks/incidents` | Receive OpenMetadata alert payloads |
-| GET | `/incidents` | List recent briefs (JSON) |
-| GET | `/incidents/{id}` | Full brief payload (JSON) |
-| GET | `/incidents/{id}/view` | Rendered HTML brief |
+| GET | `/incidents` | List recent briefs (JSON) (API key required if configured) |
+| GET | `/incidents/{id}` | Full brief payload (JSON) (API key required if configured) |
+| GET | `/incidents/{id}/view` | Rendered HTML brief (API key required if configured) |
 | POST | `/slack/actions` | Slack interactivity (ack/approve/deny) — HMAC-verified |
 | GET | `/health` | Liveness + which integrations are configured |
-| GET | `/metrics` | `{incident_count, pending_retries}` |
-| GET | `/admin/retry-queue` | Inspect Slack retry queue |
-| POST | `/admin/retry-now` | Force immediate retry sweep |
+| GET | `/metrics` | `{incident_count, pending_retries}` (API key required if configured) |
+| GET | `/admin/retry-queue` | Inspect Slack retry queue (API key required) |
+| POST | `/admin/retry-now` | Force immediate retry sweep (API key required) |
 
 ## Deployment docs
 

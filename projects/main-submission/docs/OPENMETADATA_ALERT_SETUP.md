@@ -23,12 +23,11 @@ Tested against OpenMetadata 1.12.x.
 
 | Option | When to use |
 |---|---|
-| **Webhook (recommended)** | OpenMetadata can reach the copilot's URL directly. |
+| **Webhook (advanced)** | You have a relay/proxy that can sign requests before forwarding to the copilot. |
 | **Polling** | Firewalls / NAT block inbound traffic to the copilot. Set `COPILOT_ENABLE_POLLER=true`. |
 
-The rest of this guide covers the **webhook** path. For polling, just export
-`COPILOT_ENABLE_POLLER=true`, `OPENMETADATA_BASE_URL`, `OPENMETADATA_JWT_TOKEN`
-and restart the copilot — no OpenMetadata-side config needed.
+For polling, just export `COPILOT_ENABLE_POLLER=true`, `OPENMETADATA_BASE_URL`,
+`OPENMETADATA_JWT_TOKEN` and restart the copilot — no OpenMetadata-side config needed.
 
 ---
 
@@ -41,12 +40,12 @@ and restart the copilot — no OpenMetadata-side config needed.
 4. **Filter:** add a condition `Test Case Status = Failed` — this avoids firing
    on every pass/resumed run.
 5. **Destination:** choose **Webhook** → **Generic**.
-6. **Endpoint URL:** `http://<copilot-host>:8080/webhooks/incidents`
-   - For Docker compose on the same network: `http://copilot:8080/webhooks/incidents`
-   - For localhost: `http://host.docker.internal:8080/webhooks/incidents`
+6. **Endpoint URL:** point to your relay/proxy endpoint. The relay must forward
+   to `http://<copilot-host>:8080/webhooks/incidents`.
 7. **HTTP Method:** `POST`. Content type `application/json`.
-8. **Headers:** leave empty (no auth on the copilot webhook endpoint in hackathon
-   mode — put the copilot behind a VPN/private network for production).
+8. **Headers:** your relay must add:
+   - `X-Webhook-Timestamp: <unix-seconds>`
+   - `X-Webhook-Signature: v1=<hex(hmac_sha256("v1:{timestamp}:{raw_body}", COPILOT_WEBHOOK_SECRET))>`
 9. **Save** and click **Send Test** — you should see a new row appear at
    `http://<copilot-host>:8080/` (the dashboard).
 
@@ -72,7 +71,7 @@ a broken NULL-ratio check). Within a few seconds:
 | 404 from OM when sending test | Endpoint URL typo — verify with `curl /health` first. |
 | Webhook arrives but `entity_fqn` is empty | OM payload shape varies by version — the parser also accepts `entityLink` like `<#E::table::svc.db.t>`. Check payload with `kubectl logs` / docker logs. |
 | Policy is always `allowed` | Expected when no asset is tagged `PII.Sensitive`. To test the approval path, tag a downstream asset with that classification. |
-| Dashboard empty after test fire | Check `docker logs copilot` — parser errors surface there. A known canonical envelope (`incident_id`, `entity_fqn`, `test_case_id`...) is always accepted as fallback. |
+| Dashboard empty after test fire | Check `docker logs copilot` — parser/signature errors surface there. Canonical envelopes are rejected on the public webhook route. |
 | Retries never succeed | `GET /admin/retry-queue` — `last_error` shows why Slack rejects. Verify `SLACK_WEBHOOK_URL`. |
 
 ---
@@ -84,6 +83,8 @@ See `.env.example` for the full list. Minimum for live OpenMetadata mode:
 ```bash
 OPENMETADATA_BASE_URL=http://your-om-host:8585/api
 OPENMETADATA_JWT_TOKEN=<ingestion-bot-token>
+COPILOT_WEBHOOK_SECRET=<shared-secret-used-by-relay>
+COPILOT_API_KEY=<optional-read-admin-api-key>
 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...   # optional
 OPENROUTER_API_KEY=sk-or-...                              # optional
 ```
@@ -92,8 +93,8 @@ OPENROUTER_API_KEY=sk-or-...                              # optional
 
 ## Security notes
 
-- The webhook endpoint is unauthenticated. Put the copilot behind your private
-  network, VPN, or a reverse proxy (`nginx auth_basic`, `caddy basicauth`, etc.).
+- `/webhooks/incidents` requires signed requests using `COPILOT_WEBHOOK_SECRET`.
+- If you set `COPILOT_API_KEY`, read/admin endpoints require `X-API-Key`.
 - The Slack webhook URL is a secret — keep it out of logs and public repos.
 - The Ingestion Bot JWT grants read access to your OM catalog — same rule.
 - Container runs as the default `python` user in the `python:3.12-slim` base

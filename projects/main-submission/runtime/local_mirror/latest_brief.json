@@ -2,6 +2,7 @@
   "brief": {
     "incident_id": "inc-replay-demo",
     "policy_state": "approval_required",
+    "required_approver_role": "data_steward",
     "what_failed": {
       "evidence_refs": [
         "incident_ref",

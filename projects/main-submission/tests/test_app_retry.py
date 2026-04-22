@@ -1,4 +1,9 @@
 """Integration tests for the webhook → delivery-queue → retry-endpoint wiring."""
+import hashlib
+import hmac
+import json
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -12,6 +17,26 @@ SAMPLE_OM_PAYLOAD = {
         "testCaseResult": {"testCaseStatus": "Failed", "result": "null ratio exceeded"},
     }
 }
+
+
+def _sign_webhook(body: bytes, secret: str, ts: str) -> str:
+    basestring = f"v1:{ts}:".encode() + body
+    mac = hmac.new(secret.encode(), basestring, hashlib.sha256).hexdigest()
+    return f"v1={mac}"
+
+
+def _post_webhook(client, payload: dict, secret: str = "om-test-secret"):
+    body = json.dumps(payload).encode("utf-8")
+    ts = str(int(time.time()))
+    return client.post(
+        "/webhooks/incidents",
+        content=body,
+        headers={
+            "Content-Type": "application/json",
+            "X-Webhook-Timestamp": ts,
+            "X-Webhook-Signature": _sign_webhook(body, secret, ts),
+        },
+    )
 
 
 def _fake_run_pipeline(raw_event, om_data, slack_sender, mirror_writer=None):
@@ -43,6 +68,8 @@ def _fake_run_pipeline(raw_event, om_data, slack_sender, mirror_writer=None):
 @pytest.fixture
 def client_with_slack(tmp_path, monkeypatch):
     monkeypatch.setenv("COPILOT_DB_PATH", str(tmp_path / "t.db"))
+    monkeypatch.setenv("COPILOT_WEBHOOK_SECRET", "om-test-secret")
+    monkeypatch.setenv("COPILOT_API_KEY", "admin-key")
     monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.slack.test/x")
     monkeypatch.setattr("incident_copilot.app.run_pipeline", _fake_run_pipeline)
     # Force Slack sender to fail initially
@@ -53,24 +80,26 @@ def client_with_slack(tmp_path, monkeypatch):
 
 
 def test_failed_slack_enqueues_retry(client_with_slack):
-    r = client_with_slack.post("/webhooks/incidents", json=SAMPLE_OM_PAYLOAD)
+    r = _post_webhook(client_with_slack, SAMPLE_OM_PAYLOAD)
     assert r.status_code == 200
     assert r.json()["delivery"]["primary_output"] == "local_mirror"
 
-    snap = client_with_slack.get("/admin/retry-queue").json()
+    snap = client_with_slack.get("/admin/retry-queue", headers={"X-API-Key": "admin-key"}).json()
     assert len(snap["pending"]) == 1
     assert snap["pending"][0]["incident_id"] == r.json()["incident_id"]
 
 
 def test_metrics_reports_pending(client_with_slack):
-    client_with_slack.post("/webhooks/incidents", json=SAMPLE_OM_PAYLOAD)
-    m = client_with_slack.get("/metrics").json()
+    _post_webhook(client_with_slack, SAMPLE_OM_PAYLOAD)
+    m = client_with_slack.get("/metrics", headers={"X-API-Key": "admin-key"}).json()
     assert m["incident_count"] == 1
     assert m["pending_retries"] == 1
 
 
 def test_retry_now_with_succeeding_sender(tmp_path, monkeypatch):
     monkeypatch.setenv("COPILOT_DB_PATH", str(tmp_path / "t.db"))
+    monkeypatch.setenv("COPILOT_WEBHOOK_SECRET", "om-test-secret")
+    monkeypatch.setenv("COPILOT_API_KEY", "admin-key")
     monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.slack.test/x")
     monkeypatch.setattr("incident_copilot.app.run_pipeline", _fake_run_pipeline)
 
@@ -84,23 +113,34 @@ def test_retry_now_with_succeeding_sender(tmp_path, monkeypatch):
     app = create_app(retry_interval_seconds=0)
     client = TestClient(app)
 
-    post = client.post("/webhooks/incidents", json=SAMPLE_OM_PAYLOAD)
+    post = _post_webhook(client, SAMPLE_OM_PAYLOAD)
     assert post.json()["delivery"]["primary_output"] == "local_mirror"
-    assert client.get("/metrics").json()["pending_retries"] == 1
+    assert client.get("/metrics", headers={"X-API-Key": "admin-key"}).json()["pending_retries"] == 1
 
-    retry = client.post("/admin/retry-now").json()
+    retry = client.post("/admin/retry-now", headers={"X-API-Key": "admin-key"}).json()
     assert retry["retried"] == 1
     assert retry["succeeded"] == 1
-    assert client.get("/metrics").json()["pending_retries"] == 0
+    assert client.get("/metrics", headers={"X-API-Key": "admin-key"}).json()["pending_retries"] == 0
 
 
 def test_retry_now_without_webhook_returns_400(tmp_path, monkeypatch):
     monkeypatch.setenv("COPILOT_DB_PATH", str(tmp_path / "t.db"))
+    monkeypatch.setenv("COPILOT_API_KEY", "admin-key")
     monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
     monkeypatch.delenv("SLACK_WEBHOOK", raising=False)
     monkeypatch.setattr("incident_copilot.app.run_pipeline", _fake_run_pipeline)
     monkeypatch.setattr("incident_copilot.app.build_slack_sender", lambda: None)
     app = create_app(retry_interval_seconds=0)
     client = TestClient(app)
-    r = client.post("/admin/retry-now")
+    r = client.post("/admin/retry-now", headers={"X-API-Key": "admin-key"})
     assert r.status_code == 400
+
+
+def test_admin_retry_queue_requires_api_key(client_with_slack):
+    r = client_with_slack.get("/admin/retry-queue")
+    assert r.status_code == 401
+
+
+def test_admin_retry_now_rejects_invalid_api_key(client_with_slack):
+    r = client_with_slack.post("/admin/retry-now", headers={"X-API-Key": "wrong"})
+    assert r.status_code == 401

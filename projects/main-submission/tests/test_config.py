@@ -1,7 +1,7 @@
 import os
 from unittest.mock import patch
 
-from incident_copilot.config import AppConfig, load_config
+from incident_copilot.config import load_config
 
 
 def test_defaults_when_nothing_set():
@@ -9,9 +9,25 @@ def test_defaults_when_nothing_set():
         cfg = load_config()
         assert cfg.db_path.endswith("incidents.db")
         assert cfg.default_channel == "#metadata-incidents"
-        assert cfg.host == "0.0.0.0"
+        assert cfg.host == "127.0.0.1"
         assert cfg.port == 8080
         assert cfg.has_openmetadata is False
+
+
+def test_reads_security_env():
+    with patch.dict(
+        os.environ,
+        {
+            "COPILOT_WEBHOOK_SECRET": "om-secret",
+            "COPILOT_API_KEY": "api-key",
+            "COPILOT_APPROVER_USERS": "U1,steward",
+        },
+        clear=True,
+    ):
+        cfg = load_config()
+        assert cfg.webhook_signing_secret == "om-secret"
+        assert cfg.api_key == "api-key"
+        assert cfg.approver_users == "U1,steward"
 
 
 def test_reads_openmetadata_from_env():

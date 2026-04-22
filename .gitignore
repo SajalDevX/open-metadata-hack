@@ -5,6 +5,7 @@ __pycache__/
 # venv
 .venv/
 venv/
+*.egg-info/
 
 # pytest / coverage
 .pytest_cache/

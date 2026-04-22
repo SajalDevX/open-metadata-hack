@@ -1,10 +1,14 @@
 # Integration Setup Guide
 
-Where to get the credentials the copilot reads from `.env`. None of them are
-required — the service runs with any subset — but each unlocks more functionality.
+Where to get the credentials the copilot reads from `.env`.
+The service can run in demo mode with minimal env, but webhook ingest requires
+`COPILOT_WEBHOOK_SECRET`, and protected routes require `COPILOT_API_KEY` when set.
 
 | Variable | What it unlocks |
 |---|---|
+| `COPILOT_WEBHOOK_SECRET` | Required signature verification on `/webhooks/incidents` |
+| `COPILOT_API_KEY` | Protects read/admin routes via `X-API-Key` |
+| `COPILOT_APPROVER_USERS` | Slack user-ID allowlist for approval/deny actions |
 | `OPENROUTER_API_KEY` | AI-generated RCA narratives + recommendation bullets |
 | `OPENMETADATA_BASE_URL` + `OPENMETADATA_JWT_TOKEN` | Live context resolution against your real OpenMetadata catalog |
 | `SLACK_WEBHOOK_URL` | Slack delivery of the 4-block brief as a Block Kit message |
@@ -139,9 +143,9 @@ You don't need all four credentials. Start with what you have:
 |---|---|
 | **Nothing** | `./scripts/verify.sh` — fixture-backed demo, 30 seconds |
 | **+ OpenRouter key** | Same as above, but RCA narratives come from Claude |
-| **+ OpenMetadata** | Set URL + JWT, run `python3 scripts/run_server.py`, send a real alert from OM (Settings → Alerts → Webhook to `http://<host>:8080/webhooks/incidents`). See `docs/OPENMETADATA_ALERT_SETUP.md`. |
+| **+ OpenMetadata** | Set URL + JWT, run `python3 scripts/run_server.py`, then either use poller mode (`COPILOT_ENABLE_POLLER=true`) or send signed webhook requests via a relay. See `docs/OPENMETADATA_ALERT_SETUP.md`. |
 | **+ Slack webhook** | Briefs arrive in your channel as Block Kit messages. Buttons are visible but not yet clickable. |
-| **+ Slack signing secret + ngrok** | Buttons become clickable. `/slack/actions` records who ack'd / approved / denied each incident — visible on the dashboard and in `/incidents/{id}`. |
+| **+ Slack signing secret + ngrok + approver IDs** | Buttons become clickable. `approve/deny` for approval-required incidents require `COPILOT_APPROVER_USERS` (Slack user IDs). |
 
 ---
 
@@ -151,9 +155,12 @@ Edit `projects/main-submission/.env` (already gitignored, safe to store secrets)
 
 ```bash
 # Service
-COPILOT_HOST=0.0.0.0
+COPILOT_HOST=127.0.0.1
 COPILOT_PORT=8080
 COPILOT_DB_PATH=runtime/incidents.db
+COPILOT_WEBHOOK_SECRET=<shared-secret>
+COPILOT_API_KEY=<optional-api-key-for-read-admin-routes>
+COPILOT_APPROVER_USERS=U12345,U67890
 
 # AI
 OPENROUTER_API_KEY=sk-or-v1-...
@@ -185,8 +192,9 @@ python3 scripts/run_server.py
 - **Never paste live credentials in chat, commit messages, screenshots, or Slack threads.**
 - If a secret leaks (even in a DM), revoke it at the source immediately.
 - `.env` is gitignored globally — `git status` will not show it. Keep it that way.
-- The webhook endpoint `/webhooks/incidents` has no authentication by design.
-  Deploy behind a VPN or reverse proxy with basic auth for production.
+- The webhook endpoint `/webhooks/incidents` requires signed requests
+  (`X-Webhook-Timestamp` + `X-Webhook-Signature`) using `COPILOT_WEBHOOK_SECRET`.
+- For OpenMetadata integration, use poller mode or a signing relay/proxy.
 - The Slack signing-secret flow on `/slack/actions` rejects requests older than
   5 minutes (replay protection) — this is the only endpoint where Slack
   signature checking is on.

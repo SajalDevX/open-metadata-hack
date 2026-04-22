@@ -1,4 +1,8 @@
+import hashlib
+import hmac
+import json
 import os
+import time
 from unittest.mock import patch
 
 import pytest
@@ -28,6 +32,22 @@ SAMPLE_PIPELINE_RESULT = {
 }
 
 
+def _sign_webhook(body: bytes, secret: str, ts: str) -> str:
+    basestring = f"v1:{ts}:".encode() + body
+    mac = hmac.new(secret.encode(), basestring, hashlib.sha256).hexdigest()
+    return f"v1={mac}"
+
+
+def _post_webhook(client, payload: dict, secret: str = "om-test-secret", *, with_signature: bool = True):
+    body = json.dumps(payload).encode("utf-8")
+    ts = str(int(time.time()))
+    headers = {"Content-Type": "application/json"}
+    if with_signature:
+        headers["X-Webhook-Timestamp"] = ts
+        headers["X-Webhook-Signature"] = _sign_webhook(body, secret, ts)
+    return client.post("/webhooks/incidents", content=body, headers=headers)
+
+
 def _fake_run_pipeline(raw_event, om_data, slack_sender, mirror_writer=None):
     brief = dict(SAMPLE_PIPELINE_RESULT["brief"])
     brief["incident_id"] = raw_event["incident_id"]
@@ -37,6 +57,7 @@ def _fake_run_pipeline(raw_event, om_data, slack_sender, mirror_writer=None):
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("COPILOT_DB_PATH", str(tmp_path / "test.db"))
+    monkeypatch.setenv("COPILOT_WEBHOOK_SECRET", "om-test-secret")
     monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
     monkeypatch.delenv("OPENMETADATA_BASE_URL", raising=False)
     monkeypatch.setattr("incident_copilot.app.run_pipeline", _fake_run_pipeline)
@@ -60,7 +81,7 @@ def test_metrics_endpoint_returns_counts(client):
 
 
 def test_webhook_persists_incident(client):
-    r = client.post("/webhooks/incidents", json={
+    r = _post_webhook(client, {
         "entity": {
             "id": "tc-1",
             "fullyQualifiedName": "svc.db.orders",
@@ -74,10 +95,11 @@ def test_webhook_persists_incident(client):
 
 
 def test_list_returns_recent_incidents(client):
-    client.post("/webhooks/incidents", json={
+    client_post = _post_webhook(client, {
         "entity": {"id": "tc-1", "fullyQualifiedName": "a.b.c",
                    "testCaseResult": {"testCaseStatus": "Failed", "result": "x"}}
     })
+    assert client_post.status_code == 200
     r = client.get("/incidents")
     assert r.status_code == 200
     body = r.json()
@@ -86,7 +108,7 @@ def test_list_returns_recent_incidents(client):
 
 
 def test_fetch_by_id(client):
-    post = client.post("/webhooks/incidents", json={
+    post = _post_webhook(client, {
         "entity": {"id": "tc-1", "fullyQualifiedName": "a.b.c",
                    "testCaseResult": {"testCaseStatus": "Failed", "result": "x"}}
     })
@@ -102,7 +124,7 @@ def test_fetch_missing_returns_404(client):
 
 
 def test_webhook_renders_html(client):
-    post = client.post("/webhooks/incidents", json={
+    post = _post_webhook(client, {
         "entity": {"id": "tc-1", "fullyQualifiedName": "a.b.c",
                    "testCaseResult": {"testCaseStatus": "Failed", "result": "x"}}
     })
@@ -113,8 +135,8 @@ def test_webhook_renders_html(client):
     assert incident_id in r.text
 
 
-def test_direct_canonical_envelope_passthrough(client):
-    r = client.post("/webhooks/incidents", json={
+def test_direct_canonical_envelope_rejected(client):
+    r = _post_webhook(client, {
         "incident_id": "canonical-1",
         "entity_fqn": "svc.db.x",
         "test_case_id": "tc-x",
@@ -122,5 +144,40 @@ def test_direct_canonical_envelope_passthrough(client):
         "occurred_at": "2026-04-18T00:00:00Z",
         "raw_ref": "x",
     })
-    assert r.status_code == 200
-    assert r.json()["incident_id"] == "canonical-1"
+    assert r.status_code == 400
+
+
+def test_webhook_missing_signature_rejected(client):
+    r = _post_webhook(
+        client,
+        {"entity": {"id": "tc-1", "fullyQualifiedName": "a.b.c", "testCaseResult": {"testCaseStatus": "Failed"}}},
+        with_signature=False,
+    )
+    assert r.status_code == 401
+
+
+def test_webhook_invalid_signature_rejected(client):
+    payload = {
+        "entity": {"id": "tc-1", "fullyQualifiedName": "a.b.c", "testCaseResult": {"testCaseStatus": "Failed"}}
+    }
+    body = json.dumps(payload).encode("utf-8")
+    ts = str(int(time.time()))
+    r = client.post(
+        "/webhooks/incidents",
+        content=body,
+        headers={
+            "Content-Type": "application/json",
+            "X-Webhook-Timestamp": ts,
+            "X-Webhook-Signature": "v1=deadbeef",
+        },
+    )
+    assert r.status_code == 401
+
+
+def test_webhook_secret_missing_returns_503(tmp_path, monkeypatch):
+    monkeypatch.setenv("COPILOT_DB_PATH", str(tmp_path / "test.db"))
+    monkeypatch.delenv("COPILOT_WEBHOOK_SECRET", raising=False)
+    monkeypatch.setattr("incident_copilot.app.run_pipeline", _fake_run_pipeline)
+    client = TestClient(create_app())
+    r = client.post("/webhooks/incidents", json={"entity": {"id": "tc-1"}})
+    assert r.status_code == 503

@@ -5,18 +5,21 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class AppConfig:
-    host: str
-    port: int
-    db_path: str
-    default_channel: str
-    openmetadata_base_url: str | None
-    openmetadata_jwt_token: str | None
-    openmetadata_mcp_url: str | None
-    slack_webhook_url: str | None
-    openrouter_api_key: str | None
-    use_om_mcp: bool
-    enable_poller: bool
-    poller_interval_seconds: float
+    host: str = "127.0.0.1"
+    port: int = 8080
+    db_path: str = "runtime/incidents.db"
+    default_channel: str = "#metadata-incidents"
+    openmetadata_base_url: str | None = None
+    openmetadata_jwt_token: str | None = None
+    openmetadata_mcp_url: str | None = None
+    slack_webhook_url: str | None = None
+    webhook_signing_secret: str | None = None
+    api_key: str | None = None
+    approver_users: str | None = None
+    openrouter_api_key: str | None = None
+    use_om_mcp: bool = False
+    enable_poller: bool = False
+    poller_interval_seconds: float = 60.0
 
     @property
     def has_openmetadata(self) -> bool:
@@ -37,7 +40,7 @@ def _bool_env(key: str) -> bool:
 
 def load_config() -> AppConfig:
     return AppConfig(
-        host=os.environ.get("COPILOT_HOST", "0.0.0.0"),
+        host=os.environ.get("COPILOT_HOST", "127.0.0.1"),
         port=int(os.environ.get("COPILOT_PORT", "8080")),
         db_path=os.environ.get("COPILOT_DB_PATH", "runtime/incidents.db"),
         default_channel=os.environ.get("COPILOT_DEFAULT_CHANNEL", "#metadata-incidents"),
@@ -45,6 +48,9 @@ def load_config() -> AppConfig:
         openmetadata_jwt_token=os.environ.get("OPENMETADATA_JWT_TOKEN") or None,
         openmetadata_mcp_url=os.environ.get("OPENMETADATA_MCP_URL") or None,
         slack_webhook_url=os.environ.get("SLACK_WEBHOOK_URL") or os.environ.get("SLACK_WEBHOOK") or None,
+        webhook_signing_secret=os.environ.get("COPILOT_WEBHOOK_SECRET") or None,
+        api_key=os.environ.get("COPILOT_API_KEY") or None,
+        approver_users=os.environ.get("COPILOT_APPROVER_USERS") or None,
         openrouter_api_key=os.environ.get("OPENROUTER_API_KEY") or None,
         use_om_mcp=_bool_env("USE_OM_MCP"),
         enable_poller=_bool_env("COPILOT_ENABLE_POLLER"),

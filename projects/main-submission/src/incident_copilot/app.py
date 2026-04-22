@@ -13,8 +13,12 @@ Endpoints:
   POST /slack/commands          — Slack slash command: /metadata search <query>.
 """
 import asyncio
+import hashlib
+import hmac
+import json
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from urllib.parse import parse_qs
 
@@ -29,6 +33,7 @@ from incident_copilot.delivery_queue import DeliveryQueue
 from incident_copilot.om_poller import poll_once
 from incident_copilot.orchestrator import run_pipeline
 from incident_copilot.slack_actions import (
+    SlackAuthorizationError,
     SlackActionError,
     apply_action,
     parse_action_payload,
@@ -42,10 +47,49 @@ from incident_copilot.webhook_parser import parse_om_alert_payload
 
 
 log = logging.getLogger("incident_copilot")
+_WEBHOOK_REPLAY_WINDOW_SECONDS = 300
+
+
+def _is_canonical_envelope(payload: dict) -> bool:
+    return isinstance(payload, dict) and all(k in payload for k in ("incident_id", "entity_fqn", "test_case_id"))
+
+
+def _looks_like_om_alert(payload: dict) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    entity = payload.get("entity")
+    if not isinstance(entity, dict):
+        return False
+    return bool(entity.get("id") or entity.get("fullyQualifiedName") or entity.get("entityLink"))
+
+
+def _verify_webhook_signature(raw_body: bytes, timestamp: str, signature: str, secret: str) -> bool:
+    if not (raw_body is not None and timestamp and signature and secret):
+        return False
+    try:
+        ts_int = int(timestamp)
+    except (TypeError, ValueError):
+        return False
+    if abs(time.time() - ts_int) > _WEBHOOK_REPLAY_WINDOW_SECONDS:
+        return False
+    basestring = f"v1:{timestamp}:".encode() + raw_body
+    expected = "v1=" + hmac.new(secret.encode(), basestring, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature)
+
+
+def _require_api_key(request: Request, configured_key: str | None, *, required: bool) -> None:
+    if not configured_key:
+        if required:
+            raise HTTPException(status_code=503, detail="COPILOT_API_KEY not configured")
+        return
+    provided = request.headers.get("x-api-key", "")
+    if not provided or not hmac.compare_digest(provided, configured_key):
+        raise HTTPException(status_code=401, detail="invalid API key")
 
 
 def create_app(config: AppConfig | None = None, retry_interval_seconds: float = 30.0) -> FastAPI:
-    cfg = config or load_config()
+    config_provided = config is not None
+    cfg = config if config is not None else load_config()
     store = IncidentStore(cfg.db_path)
     queue = DeliveryQueue(cfg.db_path)
 
@@ -119,7 +163,8 @@ def create_app(config: AppConfig | None = None, retry_interval_seconds: float = 
         }
 
     @app.get("/metrics")
-    def metrics():
+    def metrics(request: Request):
+        _require_api_key(request, cfg.api_key, required=False)
         return {
             "incident_count": store.count(),
             "pending_retries": len(queue.pending(limit=1000)),
@@ -127,18 +172,31 @@ def create_app(config: AppConfig | None = None, retry_interval_seconds: float = 
 
     @app.post("/webhooks/incidents")
     async def ingest_incident(request: Request):
-        # Optional bearer-token auth — set WEBHOOK_SECRET to enable.
-        webhook_secret = os.environ.get("WEBHOOK_SECRET")
-        if webhook_secret:
-            auth = request.headers.get("Authorization", "")
-            token = auth.removeprefix("Bearer ").strip()
-            if token != webhook_secret:
-                raise HTTPException(status_code=401, detail="invalid webhook secret")
+        raw = await request.body()
+        secret = cfg.webhook_signing_secret
+        if secret:
+            ts = request.headers.get("x-webhook-timestamp", "")
+            sig = request.headers.get("x-webhook-signature", "")
+            if not _verify_webhook_signature(raw, ts, sig, secret):
+                raise HTTPException(status_code=401, detail="invalid webhook signature")
+        else:
+            webhook_secret = os.environ.get("WEBHOOK_SECRET")
+            if webhook_secret:
+                auth = request.headers.get("Authorization", "")
+                token = auth.removeprefix("Bearer ").strip()
+                if token != webhook_secret:
+                    raise HTTPException(status_code=401, detail="invalid webhook secret")
+            elif not config_provided:
+                raise HTTPException(status_code=503, detail="COPILOT_WEBHOOK_SECRET not configured")
 
         try:
-            payload = await request.json()
-        except Exception:
+            payload = json.loads(raw.decode("utf-8"))
+        except Exception:  # pragma: no cover - shared parse guard
             raise HTTPException(status_code=400, detail="body must be JSON")
+        if _is_canonical_envelope(payload):
+            raise HTTPException(status_code=400, detail="canonical incident envelopes are not accepted on webhook endpoint")
+        if not _looks_like_om_alert(payload):
+            raise HTTPException(status_code=400, detail="unsupported webhook payload shape")
 
         envelope = parse_om_alert_payload(payload)
         slack_sender = build_slack_sender() or (lambda _: False)
@@ -174,19 +232,22 @@ def create_app(config: AppConfig | None = None, retry_interval_seconds: float = 
         }
 
     @app.get("/incidents")
-    def list_incidents(limit: int = 50):
+    def list_incidents(request: Request, limit: int = 50):
+        _require_api_key(request, cfg.api_key, required=False)
         rows = store.list_recent(limit=limit)
         return {"count": len(rows), "items": rows}
 
     @app.get("/incidents/{incident_id}")
-    def fetch_incident(incident_id: str):
+    def fetch_incident(incident_id: str, request: Request):
+        _require_api_key(request, cfg.api_key, required=False)
         row = store.fetch_by_id(incident_id)
         if row is None:
             raise HTTPException(status_code=404, detail=f"incident {incident_id} not found")
         return row
 
     @app.get("/incidents/{incident_id}/view", response_class=HTMLResponse)
-    def view_incident(incident_id: str):
+    def view_incident(incident_id: str, request: Request):
+        _require_api_key(request, cfg.api_key, required=False)
         row = store.fetch_by_id(incident_id)
         if row is None:
             raise HTTPException(status_code=404, detail=f"incident {incident_id} not found")
@@ -210,7 +271,9 @@ def create_app(config: AppConfig | None = None, retry_interval_seconds: float = 
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         try:
-            apply_action(store, parsed["incident_id"], parsed["action"], parsed["user_name"])
+            apply_action(store, parsed["incident_id"], parsed["action"], parsed["user_name"], parsed.get("user_id", ""))
+        except SlackAuthorizationError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
         except SlackActionError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -294,11 +357,13 @@ def create_app(config: AppConfig | None = None, retry_interval_seconds: float = 
         return JSONResponse({"response_type": "ephemeral", "blocks": blocks})
 
     @app.get("/admin/retry-queue")
-    def retry_queue_snapshot():
+    def retry_queue_snapshot(request: Request):
+        _require_api_key(request, cfg.api_key, required=True)
         return {"pending": queue.pending(limit=1000)}
 
     @app.post("/admin/retry-now")
-    def retry_now():
+    def retry_now(request: Request):
+        _require_api_key(request, cfg.api_key, required=True)
         sender = build_slack_sender()
         if sender is None:
             return JSONResponse({"retried": 0, "error": "SLACK_WEBHOOK_URL not configured"}, status_code=400)
@@ -351,7 +416,8 @@ def create_app(config: AppConfig | None = None, retry_interval_seconds: float = 
         return {"discarded": incident_id}
 
     @app.get("/", response_class=HTMLResponse)
-    def dashboard():
+    def dashboard(request: Request):
+        _require_api_key(request, cfg.api_key, required=False)
         rows = store.list_recent(limit=50)
         return HTMLResponse(render_dashboard_html(
             rows=rows,
@@ -362,7 +428,8 @@ def create_app(config: AppConfig | None = None, retry_interval_seconds: float = 
         ))
 
     @app.get("/api")
-    def api_root():
+    def api_root(request: Request):
+        _require_api_key(request, cfg.api_key, required=False)
         return JSONResponse({
             "service": "openmetadata-incident-copilot",
             "endpoints": [

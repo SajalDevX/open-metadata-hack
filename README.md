@@ -62,7 +62,7 @@ All AI calls (blocks 8, 10) go through **OpenRouter** (`openai` SDK with `anthro
 
 ```bash
 cd projects/main-submission
-cp .env.example .env        # edit to taste — every var is optional
+cp .env.example .env        # edit to taste; webhook ingress needs COPILOT_WEBHOOK_SECRET
 docker compose up --build
 ```
 
@@ -79,6 +79,7 @@ python3 scripts/run_server.py
 ### Option C — One-shot demo (no server, no OpenMetadata)
 
 ```bash
+cd projects/main-submission
 python3 scripts/run_demo.py \
   --replay runtime/fixtures/replay_event.json \
   --context runtime/fixtures/replay_om_context.json \
@@ -93,6 +94,7 @@ Outputs:
 ### 3. Verify everything in one shot
 
 ```bash
+cd projects/main-submission
 ./scripts/verify.sh
 ```
 
@@ -107,6 +109,7 @@ Set env vars and swap the flag on the demo script:
 ```bash
 export OPENMETADATA_BASE_URL="http://localhost:8585/api"
 export OPENMETADATA_JWT_TOKEN="eyJ..."          # from Bots → Ingestion Bot
+cd projects/main-submission
 
 # Direct HTTP (OpenMetadata REST API)
 python3 scripts/run_demo.py --replay runtime/fixtures/replay_event.json \
@@ -126,6 +129,7 @@ Fallback chain: `MCP → HTTP → fixture payload`. Every fallback gets a reason
 
 ```bash
 export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/T.../B.../..."
+cd projects/main-submission
 python3 scripts/run_demo.py --replay ... --context ... --output ...
 ```
 
@@ -137,6 +141,7 @@ If the webhook fails, `local_mirror` becomes the primary output — payload hash
 
 ```bash
 export OPENROUTER_API_KEY="sk-or-..."
+cd projects/main-submission
 python3 scripts/run_demo.py --replay ... --context ... --output ...
 ```
 
@@ -147,6 +152,7 @@ With the key set, the RCA narrative and "what to do next" bullets come from Clau
 ## Running as an MCP server
 
 ```bash
+cd projects/main-submission
 python3 src/incident_copilot/mcp_facade.py
 ```
 
@@ -223,16 +229,14 @@ projects/main-submission/
 
 ## Deployment docs
 
-- `docs/INTEGRATION_SETUP.md` — where to get OpenMetadata / Slack / OpenRouter credentials
-- `docs/OPENMETADATA_ALERT_SETUP.md` — step-by-step for pointing OM at the webhook
-- `docs/TESTING.md` — 8 depth-ordered ways to test the product
-- `docs/KNOWN_GAPS.md` — deferred items + verified-working inventory
-- `docs/DEMO_SCRIPT.md` — 2-minute demo recording guide
-- `.env.example` — every supported env var documented
+- `projects/main-submission/docs/INTEGRATION_SETUP.md` — where to get OpenMetadata / Slack / OpenRouter credentials
+- `projects/main-submission/docs/OPENMETADATA_ALERT_SETUP.md` — step-by-step for pointing OM at the webhook
+- `projects/main-submission/docs/TESTING.md` — 8 depth-ordered ways to test the product
+- `projects/main-submission/docs/KNOWN_GAPS.md` — deferred items + verified-working inventory
+- `projects/main-submission/docs/DEMO_SCRIPT.md` — 2-minute demo recording guide
+- `projects/main-submission/.env.example` — every supported env var documented
 
 ## Design docs
 
-- `../../2026-04-18-metadata-incident-copilot-design.md` — base design
-- `../../2026-04-18-metadata-incident-copilot-expanded-design.md` — expanded design (AI + MCP + scoring)
-- `../../2026-04-18-metadata-incident-copilot.md` — base implementation plan
-- `../../2026-04-18-metadata-incident-copilot-expanded-plan.md` — expanded implementation plan
+- `2026-04-18-metadata-incident-copilot-expanded-design.md` — expanded design (AI + MCP + scoring)
+- `2026-04-18-metadata-incident-copilot-expanded-plan.md` — expanded implementation plan

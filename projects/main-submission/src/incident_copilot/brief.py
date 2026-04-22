@@ -9,6 +9,7 @@ def build_incident_brief(
     who_acts_first,
     what_to_do_next,
     policy_state,
+    required_approver_role=None,
 ):
     wf_text, wf_refs = what_failed
     wi_text, wi_refs = what_is_impacted
@@ -21,4 +22,5 @@ def build_incident_brief(
         "who_acts_first": _block(wa_text, wa_refs),
         "what_to_do_next": _block(wn_text, wn_refs),
         "policy_state": policy_state,
+        "required_approver_role": required_approver_role,
     }

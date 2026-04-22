@@ -22,6 +22,10 @@ class SlackActionError(Exception):
     pass
 
 
+class SlackAuthorizationError(SlackActionError):
+    pass
+
+
 def verify_slack_signature(raw_body: bytes, timestamp: str, signature: str, secret: str) -> bool:
     if not (raw_body is not None and timestamp and signature and secret):
         return False
@@ -70,10 +74,27 @@ def parse_action_payload(raw_body: bytes) -> dict:
     }
 
 
-def apply_action(store, incident_id: str, action: str, user_name: str) -> dict:
+def _authorized_approver(user_id: str) -> bool:
+    raw = os.environ.get("COPILOT_APPROVER_USERS", "")
+    allowed = {item.strip().lower() for item in raw.split(",") if item.strip()}
+    if not allowed:
+        return False
+    return user_id.lower() in allowed
+
+
+def apply_action(store, incident_id: str, action: str, user_name: str, user_id: str = "") -> dict:
     row = store.fetch_by_id(incident_id)
     if row is None:
         raise SlackActionError(f"incident {incident_id} not found")
+    brief = row.get("brief") or {}
+    policy_state = brief.get("policy_state")
+    required_role = brief.get("required_approver_role") or "data_steward"
+
+    if action in {"approve", "deny"} and policy_state == "approval_required":
+        if not _authorized_approver(user_id=user_id or ""):
+            raise SlackAuthorizationError(
+                f"user is not authorized to {action} (requires {required_role})"
+            )
 
     new_status_map = {
         "ack": f"acked_by:{user_name or 'unknown'}",

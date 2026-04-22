@@ -17,6 +17,26 @@ def _sign(body: str, secret: str, ts: str) -> str:
     return f"v0={mac}"
 
 
+def _sign_webhook(body: bytes, secret: str, ts: str) -> str:
+    basestring = f"v1:{ts}:".encode() + body
+    mac = hmac.new(secret.encode(), basestring, hashlib.sha256).hexdigest()
+    return f"v1={mac}"
+
+
+def _post_signed_webhook(client, payload: dict, secret: str = "om-test-secret"):
+    body = json.dumps(payload).encode("utf-8")
+    ts = str(int(time.time()))
+    return client.post(
+        "/webhooks/incidents",
+        content=body,
+        headers={
+            "Content-Type": "application/json",
+            "X-Webhook-Timestamp": ts,
+            "X-Webhook-Signature": _sign_webhook(body, secret, ts),
+        },
+    )
+
+
 def _action_body(incident_id: str, action: str = "ack") -> str:
     payload = {
         "type": "block_actions",
@@ -29,7 +49,9 @@ def _action_body(incident_id: str, action: str = "ack") -> str:
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("COPILOT_DB_PATH", str(tmp_path / "t.db"))
+    monkeypatch.setenv("COPILOT_WEBHOOK_SECRET", "om-test-secret")
     monkeypatch.setenv("SLACK_SIGNING_SECRET", "test-secret")
+    monkeypatch.setenv("COPILOT_APPROVER_USERS", "U123")
     monkeypatch.setattr(
         "incident_copilot.app.run_pipeline",
         lambda e, o, slack_sender, mirror_writer=None: {
@@ -53,16 +75,20 @@ def client(tmp_path, monkeypatch):
 
 
 def _seed(client, incident_id: str):
-    return client.post("/webhooks/incidents", json={
-        "incident_id": incident_id, "entity_fqn": "svc.db.x",
-        "test_case_id": "tc", "severity": "high",
-        "occurred_at": "2026-04-18T00:00:00Z", "raw_ref": "x",
+    response = _post_signed_webhook(client, {
+        "entity": {
+            "id": f"tc-{incident_id}",
+            "fullyQualifiedName": "svc.db.schema.orders",
+            "testCaseResult": {"testCaseStatus": "Failed", "result": "null ratio"},
+        }
     })
+    assert response.status_code == 200
+    return response.json()["incident_id"]
 
 
 def test_valid_signature_accepts_ack(client):
-    _seed(client, "inc-ack-1")
-    body = _action_body("inc-ack-1", "ack")
+    incident_id = _seed(client, "inc-ack-1")
+    body = _action_body(incident_id, "ack")
     ts = str(int(time.time()))
     sig = _sign(body, "test-secret", ts)
     r = client.post(
@@ -78,14 +104,14 @@ def test_valid_signature_accepts_ack(client):
     body_json = r.json()
     # Response replaces the original message so the brief visibly transforms
     assert body_json["replace_original"] is True
-    assert "inc-ack-1" in body_json["text"]
+    assert incident_id in body_json["text"]
     assert "Acknowledged" in body_json["text"]
     assert "blocks" in body_json
 
 
 def test_invalid_signature_rejected(client):
-    _seed(client, "inc-ack-2")
-    body = _action_body("inc-ack-2", "ack")
+    incident_id = _seed(client, "inc-ack-2")
+    body = _action_body(incident_id, "ack")
     ts = str(int(time.time()))
     r = client.post(
         "/slack/actions",
@@ -100,8 +126,8 @@ def test_invalid_signature_rejected(client):
 
 
 def test_stale_timestamp_rejected(client):
-    _seed(client, "inc-ack-3")
-    body = _action_body("inc-ack-3", "ack")
+    incident_id = _seed(client, "inc-ack-3")
+    body = _action_body(incident_id, "ack")
     old_ts = str(int(time.time()) - 3600)  # 1 hour old
     sig = _sign(body, "test-secret", old_ts)
     r = client.post(
@@ -117,8 +143,8 @@ def test_stale_timestamp_rejected(client):
 
 
 def test_approve_updates_delivery_status(client):
-    _seed(client, "inc-approve-1")
-    body = _action_body("inc-approve-1", "approve")
+    incident_id = _seed(client, "inc-approve-1")
+    body = _action_body(incident_id, "approve")
     ts = str(int(time.time()))
     sig = _sign(body, "test-secret", ts)
     r = client.post(
@@ -130,13 +156,13 @@ def test_approve_updates_delivery_status(client):
         },
     )
     assert r.status_code == 200
-    incident = client.get("/incidents/inc-approve-1").json()
+    incident = client.get(f"/incidents/{incident_id}").json()
     assert incident["delivery_status"].startswith("acked") or "approved" in incident["delivery_status"]
 
 
 def test_deny_is_recorded(client):
-    _seed(client, "inc-deny-1")
-    body = _action_body("inc-deny-1", "deny")
+    incident_id = _seed(client, "inc-deny-1")
+    body = _action_body(incident_id, "deny")
     ts = str(int(time.time()))
     sig = _sign(body, "test-secret", ts)
     r = client.post(
@@ -149,7 +175,7 @@ def test_deny_is_recorded(client):
     )
     assert r.status_code == 200
     assert "Denied" in r.json()["text"]
-    assert "inc-deny-1" in r.json()["text"]
+    assert incident_id in r.json()["text"]
 
 
 def test_missing_secret_returns_503(tmp_path, monkeypatch):
@@ -213,3 +239,25 @@ def test_unknown_incident_returns_404(client):
         },
     )
     assert r.status_code == 404
+
+
+def test_approve_rejected_for_unauthorized_user(client):
+    incident_id = _seed(client, "inc-approve-2")
+    payload = {
+        "type": "block_actions",
+        "user": {"id": "U999", "name": "intruder"},
+        "actions": [{"action_id": "approve", "value": incident_id}],
+    }
+    body = urlencode({"payload": json.dumps(payload)})
+    ts = str(int(time.time()))
+    sig = _sign(body, "test-secret", ts)
+    r = client.post(
+        "/slack/actions",
+        content=body,
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-Slack-Request-Timestamp": ts,
+            "X-Slack-Signature": sig,
+        },
+    )
+    assert r.status_code == 403

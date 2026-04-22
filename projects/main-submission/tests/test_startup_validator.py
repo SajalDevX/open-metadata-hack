@@ -8,6 +8,7 @@ def _cfg(**overrides) -> AppConfig:
         default_channel="#x",
         openmetadata_base_url=None, openmetadata_jwt_token=None,
         openmetadata_mcp_url=None, slack_webhook_url=None,
+        webhook_signing_secret=None, api_key=None, approver_users=None,
         openrouter_api_key=None, use_om_mcp=False,
         enable_poller=False, poller_interval_seconds=60.0,
     )
