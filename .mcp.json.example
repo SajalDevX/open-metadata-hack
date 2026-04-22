@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "incident-copilot": {
+      "command": "/usr/bin/python3",
+      "args": [
+        "/absolute/path/to/metadata/projects/main-submission/src/incident_copilot/mcp_facade.py"
+      ],
+      "env": {
+        "PYTHONPATH": "/absolute/path/to/metadata/projects/main-submission/src",
+        "OPENROUTER_API_KEY": "sk-or-v1-...",
+        "OPENMETADATA_BASE_URL": "http://localhost:8585/api",
+        "OPENMETADATA_JWT_TOKEN": "eyJ...",
+        "COPILOT_DB_PATH": "/absolute/path/to/metadata/projects/main-submission/runtime/incidents.db",
+        "SLACK_WEBHOOK_URL": "https://hooks.slack.com/services/...",
+        "OPENMETADATA_TIMEOUT_SECONDS": "10"
+      }
+    }
+  }
+}

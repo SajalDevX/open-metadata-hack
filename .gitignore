@@ -18,6 +18,8 @@ htmlcov/
 !.env.example
 *.pem
 *.key
+.mcp.json
+!.mcp.json.example
 
 # Persisted service data
 projects/main-submission/runtime/incidents.db

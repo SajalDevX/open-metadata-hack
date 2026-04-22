@@ -486,13 +486,58 @@ All endpoints return JSON unless noted.
 
 ### MCP tools (for AI agent composition)
 
-Start the MCP server:
+The copilot exposes all 8 tools as an MCP server, letting Claude Code (or any
+MCP-compatible agent) call them directly without rebuilding OpenMetadata lookups.
+
+#### Option A — run standalone (any MCP client)
 
 ```bash
 python3 src/incident_copilot/mcp_facade.py
 ```
 
-Available tools:
+#### Option B — wire into Claude Code
+
+1. Copy the example config to the repo root:
+
+```bash
+cp .mcp.json.example .mcp.json
+```
+
+2. Edit `.mcp.json` — replace every placeholder with real values:
+
+```json
+{
+  "mcpServers": {
+    "incident-copilot": {
+      "command": "/usr/bin/python3",
+      "args": ["/absolute/path/to/src/incident_copilot/mcp_facade.py"],
+      "env": {
+        "PYTHONPATH": "/absolute/path/to/src",
+        "OPENROUTER_API_KEY": "sk-or-v1-...",
+        "OPENMETADATA_BASE_URL": "http://localhost:8585/api",
+        "OPENMETADATA_JWT_TOKEN": "eyJ...",
+        "COPILOT_DB_PATH": "/absolute/path/to/runtime/incidents.db",
+        "SLACK_WEBHOOK_URL": "https://hooks.slack.com/services/...",
+        "OPENMETADATA_TIMEOUT_SECONDS": "10"
+      }
+    }
+  }
+}
+```
+
+> **Important:** `.mcp.json` is in `.gitignore` — it contains secrets. Never
+> commit it. Only `.mcp.json.example` (with placeholders) is tracked.
+
+3. Restart Claude Code. Type `/mcp` — you should see `incident-copilot` listed.
+
+4. Ask Claude to use the tools:
+
+> "Check for recent DQ failures and fully triage the worst one, then notify Slack"
+
+Claude will autonomously chain `list_recent_failures` → `triage_incident` →
+`score_impact` → `notify_slack` without any manual steps.
+
+#### Available tools
 
 | Tool | What it does |
 |---|---|
