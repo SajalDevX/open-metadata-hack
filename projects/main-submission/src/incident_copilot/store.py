@@ -32,8 +32,8 @@ class IncidentStore:
         conn.executescript(_SCHEMA)
         try:
             conn.execute("ALTER TABLE incidents ADD COLUMN slack_thread_ts TEXT")
-        except Exception:
-            pass  # column already exists
+        except sqlite3.OperationalError:
+            pass  # column already exists on pre-migration databases
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_incidents_thread_ts ON incidents(slack_thread_ts)"
         )
@@ -125,10 +125,12 @@ class IncidentStore:
         }
 
     def save_thread_ts(self, incident_id: str, thread_ts: str) -> None:
-        self._connect().execute(
+        cur = self._connect().execute(
             "UPDATE incidents SET slack_thread_ts = ? WHERE incident_id = ?",
             (thread_ts, incident_id),
         )
+        if cur.rowcount == 0:
+            raise KeyError(f"save_thread_ts: no incident with id {incident_id!r}")
 
     def fetch_by_thread_ts(self, thread_ts: str) -> dict | None:
         row = self._connect().execute(

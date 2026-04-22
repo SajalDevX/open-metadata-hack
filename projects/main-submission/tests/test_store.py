@@ -74,7 +74,6 @@ def test_count_returns_total(tmp_path):
 
 
 def test_save_and_fetch_thread_ts(tmp_path):
-    from incident_copilot.store import IncidentStore
     store = IncidentStore(str(tmp_path / "test.db"))
     brief = {"incident_id": "inc-001", "policy_state": "allowed"}
     store.save_brief(brief, delivery_status="sent", primary_output="slack")
@@ -85,7 +84,6 @@ def test_save_and_fetch_thread_ts(tmp_path):
 
 
 def test_fetch_by_thread_ts(tmp_path):
-    from incident_copilot.store import IncidentStore
     store = IncidentStore(str(tmp_path / "test.db"))
     brief = {"incident_id": "inc-002", "policy_state": "approval_required"}
     store.save_brief(brief, delivery_status="sent", primary_output="slack")
@@ -97,6 +95,5 @@ def test_fetch_by_thread_ts(tmp_path):
 
 
 def test_fetch_by_thread_ts_unknown_returns_none(tmp_path):
-    from incident_copilot.store import IncidentStore
     store = IncidentStore(str(tmp_path / "test.db"))
     assert store.fetch_by_thread_ts("0000000000.000000") is None
