@@ -139,3 +139,73 @@ def test_send_slack_payload_returns_false_for_malformed_brief(monkeypatch):
 
     assert send_slack_payload({"channel": "slack", "brief": "not-a-dict"}, opener=fake_urlopen) is False
     assert requests == []
+
+
+def test_post_message_returns_ts_on_success():
+    from unittest.mock import MagicMock, patch
+    import json
+    from incident_copilot.slack_sender import post_message
+
+    fake_response = MagicMock()
+    fake_response.__enter__ = lambda s: s
+    fake_response.__exit__ = MagicMock(return_value=False)
+    fake_response.read.return_value = json.dumps({
+        "ok": True, "ts": "1234567890.123456", "channel": "C123"
+    }).encode()
+
+    with patch("incident_copilot.slack_sender.urlopen", return_value=fake_response):
+        ts = post_message(
+            channel="C123",
+            message={"text": "hello", "blocks": []},
+            bot_token="xoxb-test",
+        )
+    assert ts == "1234567890.123456"
+
+
+def test_post_message_returns_none_without_token():
+    from incident_copilot.slack_sender import post_message
+    ts = post_message(channel="C123", message={"text": "hi"}, bot_token=None)
+    assert ts is None
+
+
+def test_post_message_returns_none_on_slack_error():
+    from unittest.mock import MagicMock, patch
+    import json
+    from incident_copilot.slack_sender import post_message
+
+    fake_response = MagicMock()
+    fake_response.__enter__ = lambda s: s
+    fake_response.__exit__ = MagicMock(return_value=False)
+    fake_response.read.return_value = json.dumps({"ok": False, "error": "channel_not_found"}).encode()
+
+    with patch("incident_copilot.slack_sender.urlopen", return_value=fake_response):
+        ts = post_message(channel="C123", message={"text": "hi"}, bot_token="xoxb-test")
+    assert ts is None
+
+
+def test_post_message_with_thread_ts():
+    """Verify thread_ts is included in the request body when provided."""
+    from unittest.mock import MagicMock, patch, call
+    import json
+    from incident_copilot.slack_sender import post_message
+
+    fake_response = MagicMock()
+    fake_response.__enter__ = lambda s: s
+    fake_response.__exit__ = MagicMock(return_value=False)
+    fake_response.read.return_value = json.dumps({"ok": True, "ts": "999.001"}).encode()
+
+    captured = []
+    def fake_urlopen(req, timeout=None):
+        captured.append(json.loads(req.data.decode()))
+        return fake_response
+
+    with patch("incident_copilot.slack_sender.urlopen", side_effect=fake_urlopen):
+        ts = post_message(
+            channel="C123",
+            message={"text": "reply"},
+            bot_token="xoxb-test",
+            thread_ts="1234567890.000001",
+        )
+    assert ts == "999.001"
+    assert captured[0]["thread_ts"] == "1234567890.000001"
+    assert captured[0]["channel"] == "C123"
