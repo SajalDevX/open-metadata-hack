@@ -14,9 +14,11 @@ CREATE TABLE IF NOT EXISTS incidents (
     payload_hash TEXT,
     brief_json TEXT NOT NULL,
     created_at REAL NOT NULL,
-    updated_at REAL NOT NULL
+    updated_at REAL NOT NULL,
+    slack_thread_ts TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_incidents_updated_at ON incidents(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_incidents_thread_ts ON incidents(slack_thread_ts);
 """
 
 
@@ -26,7 +28,15 @@ class IncidentStore:
         parent = os.path.dirname(os.path.abspath(db_path))
         if parent:
             os.makedirs(parent, exist_ok=True)
-        self._connect().executescript(_SCHEMA)
+        conn = self._connect()
+        conn.executescript(_SCHEMA)
+        try:
+            conn.execute("ALTER TABLE incidents ADD COLUMN slack_thread_ts TEXT")
+        except Exception:
+            pass  # column already exists
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_incidents_thread_ts ON incidents(slack_thread_ts)"
+        )
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, isolation_level=None)
@@ -113,6 +123,18 @@ class IncidentStore:
             "total_incidents": sum(b["count"] for b in buckets.values()),
             "signal_types": sorted(buckets.values(), key=lambda b: b["count"], reverse=True),
         }
+
+    def save_thread_ts(self, incident_id: str, thread_ts: str) -> None:
+        self._connect().execute(
+            "UPDATE incidents SET slack_thread_ts = ? WHERE incident_id = ?",
+            (thread_ts, incident_id),
+        )
+
+    def fetch_by_thread_ts(self, thread_ts: str) -> dict | None:
+        row = self._connect().execute(
+            "SELECT * FROM incidents WHERE slack_thread_ts = ?", (thread_ts,)
+        ).fetchone()
+        return self._row_to_dict(row) if row else None
 
     @staticmethod
     def _row_to_dict(row: sqlite3.Row) -> dict:
