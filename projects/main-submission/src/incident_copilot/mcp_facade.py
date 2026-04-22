@@ -62,6 +62,19 @@ def notify_slack_tool(incident_id: str, brief: dict | None = None) -> dict:
         "incident_id": incident_id,
         "fallback": "local_mirror",
     }
+
+    # If no brief supplied, look it up from the incident store.
+    if brief is None:
+        from incident_copilot.config import load_config
+        from incident_copilot.store import IncidentStore
+        try:
+            cfg = load_config()
+            row = IncidentStore(cfg.db_path).fetch_by_id(incident_id)
+            if row and isinstance(row.get("brief"), dict):
+                brief = row["brief"]
+        except Exception:
+            pass
+
     if brief is not None:
         canonical_brief = json.dumps(brief, sort_keys=True, separators=(",", ":"), default=str)
         result["brief"] = brief

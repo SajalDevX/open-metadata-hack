@@ -321,7 +321,7 @@ class OpenMetadataClient:
         except OpenMetadataClientError:
             return {}
         defs = payload.get("data") or []
-        return {d["name"]: d["id"] for d in defs if d.get("name") and d.get("id")}
+        return {d["name"]: d.get("fullyQualifiedName") or d["name"] for d in defs if d.get("name")}
 
     def fetch_basic_test_suite(self, entity_fqn: str) -> dict[str, Any] | None:
         """Find the entity's auto-created basic test suite."""
@@ -357,8 +357,7 @@ class OpenMetadataClient:
         body: dict[str, Any] = {
             "name": test_name,
             "entityLink": entity_link,
-            "testDefinition": {"id": test_def_id, "type": "testDefinition"},
-            "testSuite": {"id": test_suite_id, "type": "testSuite"},
+            "testDefinition": test_def_id,
         }
         if param_values:
             body["parameterValues"] = param_values
