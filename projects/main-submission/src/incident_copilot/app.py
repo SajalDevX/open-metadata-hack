@@ -225,6 +225,32 @@ def create_app(config: AppConfig | None = None, retry_interval_seconds: float = 
 
         return render_slack_response(parsed["action"], parsed["user_name"], parsed["incident_id"])
 
+    @app.post("/slack/events")
+    async def slack_events(request: Request) -> dict:
+        """Slack Events API — URL verification handshake + thread reply AI handler."""
+        try:
+            body = await request.json()
+        except Exception:
+            return {"ok": False}
+
+        # Slack URL verification handshake (one-time setup)
+        if body.get("type") == "url_verification":
+            return {"challenge": body.get("challenge", "")}
+
+        event = body.get("event") or {}
+        if event.get("type") == "message":
+            from incident_copilot.config import load_config
+            from incident_copilot.slack_thread_reply import handle_thread_event
+            cfg = load_config()
+            _store = IncidentStore(cfg.db_path)
+            handle_thread_event(
+                event,
+                store=_store,
+                bot_token=os.environ.get("SLACK_BOT_TOKEN"),
+            )
+
+        return {"ok": True}
+
     @app.get("/rca-summary")
     def rca_summary():
         return store.rca_summary()
