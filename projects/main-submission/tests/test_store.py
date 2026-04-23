@@ -71,3 +71,29 @@ def test_count_returns_total(tmp_path):
     store.save_brief(dict(SAMPLE_BRIEF, incident_id="a"), delivery_status="sent", primary_output="slack")
     store.save_brief(dict(SAMPLE_BRIEF, incident_id="b"), delivery_status="sent", primary_output="slack")
     assert store.count() == 2
+
+
+def test_save_and_fetch_thread_ts(tmp_path):
+    store = IncidentStore(str(tmp_path / "test.db"))
+    brief = {"incident_id": "inc-001", "policy_state": "allowed"}
+    store.save_brief(brief, delivery_status="sent", primary_output="slack")
+
+    store.save_thread_ts("inc-001", "1234567890.123456")
+    row = store.fetch_by_id("inc-001")
+    assert row["slack_thread_ts"] == "1234567890.123456"
+
+
+def test_fetch_by_thread_ts(tmp_path):
+    store = IncidentStore(str(tmp_path / "test.db"))
+    brief = {"incident_id": "inc-002", "policy_state": "approval_required"}
+    store.save_brief(brief, delivery_status="sent", primary_output="slack")
+    store.save_thread_ts("inc-002", "9999999999.000001")
+
+    row = store.fetch_by_thread_ts("9999999999.000001")
+    assert row is not None
+    assert row["incident_id"] == "inc-002"
+
+
+def test_fetch_by_thread_ts_unknown_returns_none(tmp_path):
+    store = IncidentStore(str(tmp_path / "test.db"))
+    assert store.fetch_by_thread_ts("0000000000.000000") is None

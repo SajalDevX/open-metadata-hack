@@ -124,3 +124,51 @@ def test_direct_canonical_envelope_passthrough(client):
     })
     assert r.status_code == 200
     assert r.json()["incident_id"] == "canonical-1"
+
+
+def test_slack_events_url_verification(client):
+    """Slack sends a challenge on first setup — we echo it back."""
+    resp = client.post(
+        "/slack/events",
+        json={"type": "url_verification", "challenge": "abc123xyz"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["challenge"] == "abc123xyz"
+
+
+def test_slack_events_ignores_non_thread_message(client):
+    """Root messages (ts == thread_ts) are silently ignored — 200 OK."""
+    resp = client.post(
+        "/slack/events",
+        json={
+            "type": "event_callback",
+            "event": {
+                "type": "message",
+                "ts": "123.456",
+                "thread_ts": "123.456",
+                "text": "hello",
+                "channel": "C123",
+                "user": "U456",
+            },
+        },
+    )
+    assert resp.status_code == 200
+
+
+def test_slack_events_returns_200_for_unknown_thread(client):
+    """Thread replies with no matching incident are silently acknowledged."""
+    resp = client.post(
+        "/slack/events",
+        json={
+            "type": "event_callback",
+            "event": {
+                "type": "message",
+                "ts": "999.002",
+                "thread_ts": "999.001",
+                "text": "What happened?",
+                "channel": "C123",
+                "user": "U456",
+            },
+        },
+    )
+    assert resp.status_code == 200

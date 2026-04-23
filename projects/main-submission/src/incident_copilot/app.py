@@ -13,6 +13,7 @@ Endpoints:
   POST /slack/commands          — Slack slash command: /metadata search <query>.
 """
 import asyncio
+import json
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -224,6 +225,42 @@ def create_app(config: AppConfig | None = None, retry_interval_seconds: float = 
         )
 
         return render_slack_response(parsed["action"], parsed["user_name"], parsed["incident_id"])
+
+    @app.post("/slack/events")
+    async def slack_events(request: Request) -> dict:
+        """Slack Events API — URL verification handshake + thread reply AI handler."""
+        raw_body = await request.body()
+        try:
+            body = json.loads(raw_body)
+        except Exception:
+            return {"ok": False}
+
+        signing_secret = os.environ.get("SLACK_SIGNING_SECRET", "")
+        if signing_secret:
+            from incident_copilot.slack_actions import verify_slack_signature
+            from fastapi.responses import JSONResponse
+            timestamp = request.headers.get("X-Slack-Request-Timestamp", "")
+            signature = request.headers.get("X-Slack-Signature", "")
+            if not verify_slack_signature(raw_body, timestamp, signature, signing_secret):
+                return JSONResponse(status_code=403, content={"error": "invalid signature"})
+
+        # Slack URL verification handshake (one-time setup)
+        if body.get("type") == "url_verification":
+            return {"challenge": body.get("challenge", "")}
+
+        event = body.get("event") or {}
+        if event.get("type") == "message":
+            from incident_copilot.slack_thread_reply import handle_thread_event
+            try:
+                handle_thread_event(
+                    event,
+                    store=store,  # use the store already available in scope
+                    bot_token=os.environ.get("SLACK_BOT_TOKEN"),
+                )
+            except Exception as exc:
+                log.warning("slack_events: handle_thread_event failed: %s", exc)
+
+        return {"ok": True}
 
     @app.get("/rca-summary")
     def rca_summary():

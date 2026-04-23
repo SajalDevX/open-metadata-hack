@@ -110,6 +110,42 @@ def send_slack_payload(
         return False
 
 
+def post_message(
+    channel: str,
+    message: dict,
+    bot_token: str | None = None,
+    thread_ts: str | None = None,
+    timeout_seconds: float = 5.0,
+) -> str | None:
+    """Post via chat.postMessage. Returns message ts on success, None on failure."""
+    token = bot_token or os.environ.get("SLACK_BOT_TOKEN")
+    if not token:
+        return None
+
+    body = {**message, "channel": channel}
+    if thread_ts:
+        body["thread_ts"] = thread_ts
+
+    request_body = json.dumps(body, sort_keys=True, separators=(",", ":"), default=str)
+    req = Request(
+        "https://slack.com/api/chat.postMessage",
+        data=request_body.encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json; charset=utf-8",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(req, timeout=timeout_seconds) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="replace"))
+            if data.get("ok"):
+                return data.get("ts")
+            return None
+    except Exception:
+        return None
+
+
 def build_slack_sender(env: dict | None = None, timeout_seconds: float = 5.0, opener=None):
     webhook_url = get_slack_webhook_url(env)
     if not webhook_url:
