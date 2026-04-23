@@ -9,27 +9,29 @@ def deliver(brief, slack_sender, mirror_writer, store=None):
     local_mirror_payload = {"channel": "local_mirror", "brief": brief}
     mirror_writer(local_mirror_payload)
 
+    incident_id = brief.get("incident_id", "unknown")
     slack_ok = False
-    if slack_sender is None:
-        # Bot-token path: use post_message which returns a ts string on success
+    rendered = _render_slack_message({"brief": brief, "incident_id": incident_id})
+
+    # Prefer bot-token path (returns ts for thread anchoring)
+    if rendered and os.environ.get("SLACK_BOT_TOKEN"):
         channel = os.environ.get("SLACK_CHANNEL", "")
-        message = _render_slack_message(slack_payload)
-        if message and channel:
-            ts = post_message(channel=channel, message=message)
-            if ts:
-                slack_ok = True
-                if store is not None:
-                    incident_id = brief.get("incident_id")
-                    if incident_id:
-                        # Ensure the record exists before saving the ts
-                        if store.fetch_by_id(incident_id) is None:
-                            store.save_brief(
-                                brief,
-                                delivery_status="sent",
-                                primary_output="slack",
-                            )
+        ts = post_message(channel=channel, message=rendered)
+        if ts:
+            slack_ok = True
+            if store:
+                try:
+                    store.save_thread_ts(incident_id, ts)
+                except KeyError:
+                    # incident not yet saved — persist brief first, then record ts
+                    store.save_brief(brief, delivery_status="sent", primary_output="slack")
+                    try:
                         store.save_thread_ts(incident_id, ts)
-    else:
+                    except KeyError:
+                        pass  # still missing — ts will be orphaned
+
+    # Fallback to webhook sender
+    if not slack_ok and slack_sender is not None:
         slack_ok = bool(slack_sender(slack_payload))
 
     if slack_ok:

@@ -14,7 +14,7 @@ _SYSTEM_PROMPT = (
     "If you cannot answer from the brief, say so — do not guess."
 )
 
-_FALLBACK_MODEL = "anthropic/claude-haiku-4-5"
+_FALLBACK_MODEL = "anthropic/claude-3-haiku"
 
 
 def is_thread_reply(event: dict) -> bool:
