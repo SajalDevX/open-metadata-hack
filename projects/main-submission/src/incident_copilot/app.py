@@ -239,15 +239,15 @@ def create_app(config: AppConfig | None = None, retry_interval_seconds: float = 
 
         event = body.get("event") or {}
         if event.get("type") == "message":
-            from incident_copilot.config import load_config
             from incident_copilot.slack_thread_reply import handle_thread_event
-            cfg = load_config()
-            _store = IncidentStore(cfg.db_path)
-            handle_thread_event(
-                event,
-                store=_store,
-                bot_token=os.environ.get("SLACK_BOT_TOKEN"),
-            )
+            try:
+                handle_thread_event(
+                    event,
+                    store=store,  # use the store already available in scope
+                    bot_token=os.environ.get("SLACK_BOT_TOKEN"),
+                )
+            except Exception as exc:
+                pass  # never let thread reply failures break the 200 OK guarantee
 
         return {"ok": True}
 
