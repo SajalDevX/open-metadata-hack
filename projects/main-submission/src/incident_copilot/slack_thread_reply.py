@@ -1,8 +1,9 @@
 """Handle Slack thread replies — look up incident by thread_ts and reply with AI context."""
 import json
+import logging
 import os
 
-from incident_copilot.openrouter_client import get_client, is_available
+from incident_copilot.openrouter_client import get_client
 from incident_copilot.slack_sender import post_message
 from incident_copilot.store import IncidentStore
 
@@ -83,7 +84,8 @@ def _generate_reply(brief: dict, user_question: str, model: str | None = None) -
             max_tokens=400,
         )
         return response.choices[0].message.content.strip()
-    except Exception:
+    except Exception as exc:
+        logging.warning("slack_thread_reply: AI call failed: %s", exc)
         return _fallback_reply(brief, user_question)
 
 
@@ -92,7 +94,7 @@ def _fallback_reply(brief: dict, user_question: str) -> str:
     who_acts = (brief.get("who_acts_first") or {}).get("text", "")
     policy = brief.get("policy_state", "allowed")
     return (
-        f"*Incident {brief.get('incident_id', '')}* — AI response unavailable (OpenRouter not configured).\n"
+        f"*Incident {brief.get('incident_id', '')}* — AI response unavailable.\n"
         f"*What failed:* {what_failed}\n"
         f"*Responder:* {who_acts}\n"
         f"*Policy:* {policy}"
